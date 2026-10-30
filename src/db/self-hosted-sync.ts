@@ -1,4 +1,8 @@
-import { getDb } from './index'
+import { executeRecordTransaction, getDb, type RecordStatement } from './index'
+import { appDataDir, join } from '@tauri-apps/api/path'
+import { invoke } from '@tauri-apps/api/core'
+import { copyFile, exists, lstat, mkdir } from '@tauri-apps/plugin-fs'
+import { ensureWorkspaceDirectory, managedWorkspaceLocation, normalizeManagedWorkspacePath, resolveManagedWorkspacePath } from '@/lib/managed-workspace'
 
 const SYNC_TABLES = `
   create table if not exists self_hosted_sync_profiles (
@@ -34,6 +38,12 @@ const SYNC_TABLES = `
   create unique index if not exists idx_self_hosted_workspace_bindings_root
     on self_hosted_workspace_bindings(local_root) where local_root is not null;
 
+  create table if not exists self_hosted_workspace_names (
+    workspace_id text primary key references self_hosted_workspace_bindings(workspace_id) on delete cascade,
+    name_ciphertext text not null,
+    key_version integer not null
+  );
+
   create table if not exists self_hosted_workspace_keys (
     workspace_id text not null references self_hosted_workspace_bindings(workspace_id) on delete cascade,
     key_version integer not null,
@@ -61,6 +71,11 @@ const SYNC_TABLES = `
     on self_hosted_object_mappings(workspace_id, path_casefold)
     where path_casefold is not null and deleted_at is null;
 
+  create table if not exists self_hosted_tag_identities (
+    local_tag_id integer primary key,
+    stable_id text not null unique
+  );
+
   create table if not exists self_hosted_revisions (
     workspace_id text not null,
     object_id text not null,
@@ -80,6 +95,9 @@ const SYNC_TABLES = `
     operation text not null check(operation in ('upsert', 'delete')),
     reason text not null,
     state text not null default 'pending',
+    attempt_count integer not null default 0,
+    next_attempt_at integer not null default 0,
+    last_error_code text,
     created_at integer not null,
     updated_at integer not null
   );
@@ -97,6 +115,7 @@ const SYNC_TABLES = `
     attempt_count integer not null default 0,
     next_attempt_at integer not null default 0,
     last_error_code text,
+    restore_local_snapshot integer not null default 0,
     created_at integer not null,
     updated_at integer not null
   );
@@ -222,6 +241,110 @@ const TRIGGER_DOMAINS = [
   { table: 'memories', domain: 'memory', key: 'NEW.id', oldKey: 'OLD.id' },
 ] as const
 
+async function preservePendingWorkspaceFiles(workspaceId: string, sourceRoot: string, targetRoot: string) {
+  const pending = await (await getDb()).select<Array<{ path: string; domain: string }>>(
+    `select local_key as path, domain from self_hosted_local_changes
+     where id in (
+       select max(id) from self_hosted_local_changes
+       where workspace_id = $1 and state = 'pending' and domain in ('file', 'asset', 'folder')
+       group by domain, local_key
+     ) and operation = 'upsert'`, [workspaceId],
+  )
+  if (!pending.length) return
+  await ensureWorkspaceDirectory(sourceRoot)
+  await ensureWorkspaceDirectory(targetRoot)
+  for (const change of pending) {
+    const portable = await invoke<{ normalized: string }>('self_hosted_portable_path', { relativePath: change.path })
+    let source = sourceRoot
+    let missing = false
+    for (const segment of portable.normalized.split('/')) {
+      source = await join(source, segment)
+      if (!await exists(source)) { missing = true; break }
+      if ((await lstat(source)).isSymlink) throw new Error('Symbolic-link workspace files are not synchronized')
+    }
+    if (missing) continue
+    const segments = portable.normalized.split('/')
+    const target = await join(targetRoot, ...segments)
+    if (change.domain === 'folder') await mkdir(target, { recursive: true })
+    else {
+      await mkdir(await join(targetRoot, ...segments.slice(0, -1)), { recursive: true })
+      await copyFile(source, target)
+    }
+  }
+}
+
+/** Rebase device-local paths together, including collisions left by older iOS containers. */
+export async function restoreSelfHostedWorkspaceRoots() {
+  const database = await getDb()
+  const rows = await database.select<Array<{
+    workspaceId: string; localRoot: string; bindingState: string; profileState: string
+  }>>(
+    `select b.workspace_id as workspaceId, b.local_root as localRoot,
+       b.binding_state as bindingState, p.state as profileState
+     from self_hosted_workspace_bindings b
+     join self_hosted_sync_profiles p on p.id = b.profile_id
+     where b.workspace_type = 'library' and b.local_root is not null
+     order by b.created_at`,
+  )
+  const plans = await Promise.all(rows.map(async row => {
+    const location = await managedWorkspaceLocation(row.localRoot)
+    const root = await resolveManagedWorkspacePath(row.localRoot)
+    const active = row.profileState === 'connected'
+      && ['bound', 'bootstrapping', 'epoch-changed'].includes(row.bindingState)
+    const leaf = location?.split('/').at(-1) ?? ''
+    const suffix = leaf.match(/--([a-f0-9]{8}(?:[a-f0-9]{4}){0,6})$/i)?.[1]
+    const ownsDirectory = leaf.toLowerCase() === row.workspaceId.toLowerCase()
+      || Boolean(suffix && row.workspaceId.replace(/-/g, '').toLowerCase().startsWith(suffix.toLowerCase()))
+    return { ...row, root: root as string | null, location, active,
+      priority: (active ? 100 : 0) + (ownsDirectory ? 10 : 0) }
+  }))
+  const groups = new Map<string, typeof plans>()
+  for (const plan of plans) {
+    const key = normalizeManagedWorkspacePath(plan.root!)
+    const group = groups.get(key) ?? []
+    group.push(plan)
+    groups.set(key, group)
+  }
+  const reserved = new Set(groups.keys())
+  for (const group of groups.values()) {
+    if (group.length < 2 || !group.some(plan => plan.location !== null)) continue
+    group.sort((a, b) => b.priority - a.priority)
+    for (const plan of group.slice(1)) {
+      if (!plan.active) {
+        // Old revoked/disconnected bindings must not reserve the live container.
+        plan.root = null
+        continue
+      }
+      // Keep the original directory with its owner. An accidentally aliased
+      // workspace receives a separate replica and an authoritative bootstrap.
+      let root = await join(await appDataDir(), 'workspaces', 'self-hosted', plan.workspaceId)
+      if (reserved.has(normalizeManagedWorkspacePath(root)) || await exists(root)) {
+        root = await join(await appDataDir(), 'restored-workspaces', `self-hosted-${Date.now()}-${crypto.randomUUID()}`)
+      }
+      reserved.add(normalizeManagedWorkspacePath(root))
+      await preservePendingWorkspaceFiles(plan.workspaceId, group[0].root!, root)
+      plan.root = root
+      plan.bindingState = 'epoch-changed'
+    }
+  }
+  const changed = plans.filter(plan => plan.root !== plan.localRoot
+    || plan.bindingState !== rows.find(row => row.workspaceId === plan.workspaceId)?.bindingState)
+  if (!changed.length) return
+  const now = Date.now()
+  const statements: RecordStatement[] = []
+  // Release every affected unique key before claiming canonical paths. This
+  // also handles swaps; either the complete repair commits or none of it does.
+  for (const plan of changed) statements.push({
+    sql: 'update self_hosted_workspace_bindings set local_root = null where workspace_id = $1 and local_root = $2',
+    values: [plan.workspaceId, plan.localRoot], expectedRows: 1,
+  })
+  for (const plan of changed) statements.push({
+    sql: 'update self_hosted_workspace_bindings set local_root = $1, binding_state = $2, updated_at = $3 where workspace_id = $4 and local_root is null',
+    values: [plan.root, plan.bindingState, now, plan.workspaceId], expectedRows: 1,
+  })
+  await executeRecordTransaction(statements)
+}
+
 export async function initSelfHostedSyncDb() {
   const database = await getDb()
   for (const statement of SYNC_TABLES.split(';').map(value => value.trim()).filter(Boolean)) {
@@ -241,12 +364,42 @@ export async function initSelfHostedSyncDb() {
   const profileColumns = await database.select<Array<{ name: string }>>(
     'pragma table_info(self_hosted_sync_profiles)'
   )
+  const outboxColumns = await database.select<Array<{ name: string }>>('pragma table_info(self_hosted_outbox)')
+  if (!outboxColumns.some(column => column.name === 'restore_local_snapshot')) {
+    await database.execute('alter table self_hosted_outbox add column restore_local_snapshot integer not null default 0')
+  }
   if (!profileColumns.some(column => column.name === 'access_expires_at')) {
     await database.execute('alter table self_hosted_sync_profiles add column access_expires_at integer')
   }
   if (!localChangeColumns.some(column => column.name === 'workspace_id')) {
     await database.execute('alter table self_hosted_local_changes add column workspace_id text')
   }
+  for (const [name, definition] of [
+    ['attempt_count', 'integer not null default 0'],
+    ['next_attempt_at', 'integer not null default 0'],
+    ['last_error_code', 'text'],
+  ] as const) {
+    if (!localChangeColumns.some(column => column.name === name)) {
+      await database.execute(`alter table self_hosted_local_changes add column ${name} ${definition}`)
+    }
+  }
+  await database.execute(`create index if not exists idx_self_hosted_local_changes_retry
+    on self_hosted_local_changes(state, workspace_id, next_attempt_at, attempt_count, id)`)
+  await database.execute(`
+    insert or ignore into self_hosted_tag_identities(local_tag_id, stable_id)
+    select id, lower(hex(randomblob(16))) from tags
+  `)
+  await database.execute(`
+    create trigger if not exists self_hosted_tag_identity_insert after insert on tags
+    begin
+      insert or ignore into self_hosted_tag_identities(local_tag_id, stable_id)
+      values (NEW.id, lower(hex(randomblob(16))));
+    end
+  `)
+  await database.execute(`
+    create trigger if not exists self_hosted_tag_identity_delete after delete on tags
+    begin delete from self_hosted_tag_identities where local_tag_id = OLD.id; end
+  `)
   const mappingColumns = await database.select<Array<{ name: string }>>(
     'pragma table_info(self_hosted_object_mappings)'
   )
@@ -268,6 +421,7 @@ export async function initSelfHostedSyncDb() {
     await database.execute(`drop trigger if exists self_hosted_notes_${operation}`)
   }
 
+  await restoreSelfHostedWorkspaceRoots()
   await migrateUnsyncedMarkIdentities(database)
 
   for (const trigger of TRIGGER_DOMAINS) {

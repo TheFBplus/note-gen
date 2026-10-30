@@ -304,20 +304,29 @@ pub fn run() {
             self_hosted_security::self_hosted_secure_set,
             self_hosted_security::self_hosted_secure_get,
             self_hosted_security::self_hosted_secure_delete,
+            self_hosted_security::self_hosted_secure_retry_access,
             self_hosted_files::self_hosted_portable_path,
+            self_hosted_files::self_hosted_move_source_path,
             self_hosted_files::self_hosted_import_object_id,
+            self_hosted_files::self_hosted_structured_object_id,
             self_hosted_files::self_hosted_atomic_write,
             self_hosted_files::self_hosted_delete_file,
             self_hosted_files::self_hosted_create_directory,
             self_hosted_files::self_hosted_delete_directory,
             self_hosted_files::self_hosted_move_path,
             self_hosted_files::self_hosted_pending_file_journal,
+            self_hosted_files::self_hosted_flush_switch_data,
             self_hosted_files::self_hosted_recover_file_journal,
         ])
         .setup(|app| {
             plugins::cleanup_plugin_artifacts(app.handle());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Resumed = event {
+                let _ = tauri::Emitter::emit(app_handle, "self-hosted-app-resumed", ());
+            }
+        });
 }

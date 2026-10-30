@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { platform } from '@tauri-apps/plugin-os'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { Store } from '@tauri-apps/plugin-store'
-import { getDb } from '@/db'
+import { executeRecordTransaction, getDb } from '@/db'
 import { SelfHostedApiError, SelfHostedClient, normalizeServerUrl } from './client'
 import type { ClientSession } from './protocol'
 
@@ -16,6 +16,13 @@ export interface SelfHostedProfile {
   insecureHttp: boolean
   domainToggles: Record<string, boolean>
   accessExpiresAt: number | null
+}
+
+export class SelfHostedInstanceChangedError extends Error {
+  constructor(readonly serverUrl: string, readonly instanceId: string) {
+    super('服务器实例身份已变化，请先确认服务器是否被重置或替换')
+    this.name = 'SelfHostedInstanceChangedError'
+  }
 }
 
 interface DeviceKeyPair {
@@ -45,6 +52,7 @@ const DEFAULT_DOMAIN_TOGGLES = {
 const tokenRefreshes = new Map<string, Promise<string>>()
 const authenticatedSessions = new Map<string, { profile: SelfHostedProfile; accessToken: string }>()
 const authenticatedSessionLoads = new Map<string, Promise<{ profile: SelfHostedProfile; accessToken: string }>>()
+const domainToggleUpdates = new Map<string, Promise<void>>()
 const DEVICE_ID_STORE_KEY = 'selfHostedDeviceId'
 let deviceIdentityLoad: Promise<DeviceIdentity> | null = null
 
@@ -54,6 +62,7 @@ export async function connectWithPassword(input: {
   password: string
   totpCode?: string
   deviceName: string
+  confirmedInstanceId?: string
 }): Promise<SelfHostedProfile> {
   const { normalized, client: unauthenticated, capabilities } = await resolveServerConnection(input.serverUrl)
   if (capabilities.protocol.minimum > 1 || capabilities.protocol.maximum < 1) {
@@ -61,10 +70,10 @@ export async function connectWithPassword(input: {
   }
 
   const existing = await profileForServer(normalized.url)
-  if (existing?.instanceId && existing.instanceId !== capabilities.instanceId) {
-    throw new Error('服务器实例身份已变化，请先确认服务器是否被重置或替换')
-  }
+  assertServerInstance(normalized.url, existing?.instanceId, capabilities.instanceId, input.confirmedInstanceId)
+  const instanceChanged = Boolean(existing?.instanceId && existing.instanceId !== capabilities.instanceId)
   const profileId = existing?.id ?? crypto.randomUUID()
+  await retrySecureStorageAccess()
   let keyPair = await getOrCreateDeviceIdentity(existing?.deviceId ?? undefined)
   let session: ClientSession
   try {
@@ -74,7 +83,7 @@ export async function connectWithPassword(input: {
     keyPair = await rotateDeviceIdentity(keyPair.deviceId)
     session = await loginWithDeviceIdentity(unauthenticated, input, keyPair)
   }
-  await prepareProfileAccount(profileId, existing?.accountId ?? null, session.accountId)
+  await prepareProfileAccount(profileId, existing?.accountId ?? null, session.accountId, instanceChanged)
 
   await Promise.all([
     secureSet(secretKey(profileId, 'access-token'), session.accessToken),
@@ -82,6 +91,7 @@ export async function connectWithPassword(input: {
     secureDelete(secretKey(profileId, 'refresh-request-id')).catch(() => undefined),
   ])
 
+  await requireConnectionReview(profileId)
   const database = await getDb()
   const now = Date.now()
   await database.execute(
@@ -114,16 +124,17 @@ export async function connectWithPassword(input: {
 export async function connectWithBrowser(input: {
   serverUrl: string
   deviceName: string
+  confirmedInstanceId?: string
 }): Promise<SelfHostedProfile> {
   const { normalized, client, capabilities } = await resolveServerConnection(input.serverUrl)
   if (capabilities.protocol.minimum > 1 || capabilities.protocol.maximum < 1) {
     throw new Error('服务器与当前 NoteGen 同步协议不兼容')
   }
   const existing = await profileForServer(normalized.url)
-  if (existing?.instanceId && existing.instanceId !== capabilities.instanceId) {
-    throw new Error('服务器实例身份已变化，请先确认服务器是否被重置或替换')
-  }
+  assertServerInstance(normalized.url, existing?.instanceId, capabilities.instanceId, input.confirmedInstanceId)
+  const instanceChanged = Boolean(existing?.instanceId && existing.instanceId !== capabilities.instanceId)
   const profileId = existing?.id ?? crypto.randomUUID()
+  await retrySecureStorageAccess()
   let keyPair = await getOrCreateDeviceIdentity(existing?.deviceId ?? undefined)
   for (let identityAttempt = 0; identityAttempt < 2; identityAttempt++) {
     const authorization = await client.createDeviceAuthorization({
@@ -139,7 +150,7 @@ export async function connectWithBrowser(input: {
         await wait(authorization.interval * 1_000)
         try {
           const session = await client.exchangeDeviceAuthorization(authorization.deviceCode)
-          await prepareProfileAccount(profileId, existing?.accountId ?? null, session.accountId)
+          await prepareProfileAccount(profileId, existing?.accountId ?? null, session.accountId, instanceChanged)
           await persistConnectedProfile({
             profileId,
             normalized,
@@ -297,6 +308,13 @@ export async function reconcilePersonalWorkspaceObjects(workspaceId: string) {
        )`,
     [workspaceId, now]
   )
+  const profiles = await database.select<Array<{ domainToggles: string }>>(`select p.domain_toggles as domainToggles
+    from self_hosted_workspace_bindings b join self_hosted_sync_profiles p on p.id = b.profile_id
+    where b.workspace_id = $1 limit 1`, [workspaceId])
+  if (profiles[0]) {
+    const { enqueuePersonalAssetBackfill } = await import('./personal-assets')
+    await enqueuePersonalAssetBackfill(workspaceId, JSON.parse(profiles[0].domainToggles) as Record<string, boolean>)
+  }
 }
 
 export async function authenticatedClient(profileId: string) {
@@ -415,16 +433,68 @@ export async function getProfile(profileId: string): Promise<SelfHostedProfile |
   }
 }
 
-export async function updateDomainToggle(profileId: string, domain: string, enabled: boolean) {
+export function updateDomainToggle(profileId: string, domain: string, enabled: boolean) {
+  const previous = domainToggleUpdates.get(profileId) ?? Promise.resolve()
+  const update = previous.then(() => updateDomainToggleRaw(profileId, domain, enabled))
+  const settled = update.then(() => undefined, () => undefined)
+  domainToggleUpdates.set(profileId, settled)
+  void settled.then(() => {
+    if (domainToggleUpdates.get(profileId) === settled) domainToggleUpdates.delete(profileId)
+  })
+  return update
+}
+
+async function updateDomainToggleRaw(profileId: string, domain: string, enabled: boolean) {
+  if (!Object.hasOwn(DEFAULT_DOMAIN_TOGGLES, domain)) throw new Error('不支持的个人数据同步领域')
   const profile = await getProfile(profileId)
   if (!profile) throw new Error('自托管同步配置不存在')
-  const domainToggles = { ...profile.domainToggles, [domain]: enabled }
-  const database = await getDb()
-  await database.execute(
-    'update self_hosted_sync_profiles set domain_toggles = $1, updated_at = $2 where id = $3',
-    [JSON.stringify(domainToggles), Date.now(), profileId]
-  )
-  return domainToggles
+  if ((profile.domainToggles[domain] !== false) === enabled) return profile.domainToggles
+  // Drain the current sender before changing policy. Once this call returns,
+  // queued commands from a disabled domain cannot still be sent by that run.
+  const { getSelfHostedSyncRuntime } = await import('./runtime')
+  const { pauseSelfHostedCollaboration, waitForSelfHostedCollaborationIdle } = await import('./collaboration')
+  // Generate the final debounced deltas while the current collaboration
+  // generation still accepts them, then wait for their local persistence.
+  const [{ default: canvases }, { default: articles }, { prepareActiveEditorDeactivationDurably }] = await Promise.all([
+    import('@/stores/canvas'), import('@/stores/article'), import('@/lib/editor-deactivation'),
+  ])
+  const canvasState = canvases.getState()
+  for (const [id, document] of Object.entries(canvasState.documents)) {
+    const persisted = canvasState.projects.find(project => project.id === id)?.document
+    if (JSON.stringify(document) !== JSON.stringify(persisted)) await canvases.getState().saveProject(id)
+  }
+  const article = articles.getState()
+  if (!await prepareActiveEditorDeactivationDurably(article.activeFilePath)) {
+    throw new Error('请先完成当前编辑，再修改同步范围')
+  }
+  await article.flushAllPendingArticleSaves()
+  const resume = pauseSelfHostedCollaboration()
+  try {
+    await getSelfHostedSyncRuntime().stopAndWait()
+    await waitForSelfHostedCollaborationIdle()
+    const domainToggles = { ...profile.domainToggles, [domain]: enabled }
+    const now = Date.now()
+    await executeRecordTransaction([
+      { sql: 'update self_hosted_sync_profiles set domain_toggles = $1, updated_at = $2 where id = $3',
+        values: [JSON.stringify(domainToggles), now, profileId] },
+      // Disabled events are intentionally acknowledged. Revisit an authoritative
+      // snapshot for every policy change, including domains resumed indirectly
+      // when their tag/conversation dependency is turned back on.
+      { sql: `update self_hosted_workspace_bindings set binding_state = 'epoch-changed', updated_at = $1
+          where profile_id = $2 and workspace_type = 'account-data'
+            and binding_state in ('bound', 'bootstrapping', 'epoch-changed')`,
+        values: [now, profileId] },
+    ])
+    clearAuthenticatedSession(profileId)
+    return domainToggles
+  } catch (error) {
+    resume()
+    const { refreshSelfHostedSyncRuntime } = await import('./lifecycle')
+    await refreshSelfHostedSyncRuntime().catch(restartError => {
+      console.warn('[self-hosted-sync] Unable to restart after a domain policy update failed', restartError)
+    })
+    throw error
+  } finally { resume() }
 }
 
 export async function disconnectProfile(profileId: string) {
@@ -448,6 +518,17 @@ export async function disconnectProfile(profileId: string) {
     "update self_hosted_sync_profiles set state = 'disconnected', updated_at = $1 where id = $2",
     [Date.now(), profileId]
   )
+  const store = await Store.load('store.json')
+  if (await store.get<string>('selfHostedConnectionReviewProfileId') === profileId) {
+    await store.delete('selfHostedConnectionReviewProfileId')
+    await store.save()
+  }
+}
+
+export async function requireConnectionReview(profileId: string) {
+  const store = await Store.load('store.json')
+  await store.set('selfHostedConnectionReviewProfileId', profileId)
+  await store.save()
 }
 
 export function workspaceSecretKey(workspaceId: string, keyVersion: number) {
@@ -470,6 +551,19 @@ export function secureDelete(key: string) {
   return invoke<void>('self_hosted_secure_delete', { key })
 }
 
+export function isSelfHostedSecureStorageError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes('self-hosted-secure-storage-unavailable')
+}
+
+// Background preparation must never reset the native failure latch. Only
+// explicit login, connection review and retry actions may request access again.
+export async function retrySecureStorageAccess() {
+  await invoke<void>('self_hosted_secure_retry_access')
+  const { getSelfHostedSyncRuntime } = await import('./runtime')
+  getSelfHostedSyncRuntime().allowSecureStorageRetry()
+}
+
 async function persistConnectedProfile(input: {
   profileId: string
   normalized: ReturnType<typeof normalizeServerUrl>
@@ -481,6 +575,7 @@ async function persistConnectedProfile(input: {
     secureSet(secretKey(input.profileId, 'refresh-token'), input.session.refreshToken),
     secureDelete(secretKey(input.profileId, 'refresh-request-id')).catch(() => undefined),
   ])
+  await requireConnectionReview(input.profileId)
   const database = await getDb()
   const now = Date.now()
   await database.execute(
@@ -657,8 +752,20 @@ async function profileForServer(serverUrl: string) {
   return rows[0] ?? null
 }
 
-async function prepareProfileAccount(profileId: string, previousAccountId: string | null, nextAccountId: string) {
-  if (!previousAccountId || previousAccountId === nextAccountId) return
+function assertServerInstance(serverUrl: string, previousInstanceId: string | null | undefined, instanceId: string, confirmedInstanceId?: string) {
+  if ((confirmedInstanceId && confirmedInstanceId !== instanceId)
+    || (previousInstanceId && previousInstanceId !== instanceId && confirmedInstanceId !== instanceId)) {
+    throw new SelfHostedInstanceChangedError(serverUrl, instanceId)
+  }
+}
+
+async function prepareProfileAccount(profileId: string, previousAccountId: string | null, nextAccountId: string, instanceChanged = false) {
+  if (!instanceChanged && (!previousAccountId || previousAccountId === nextAccountId)) return
+  if (instanceChanged) {
+    const { getSelfHostedSyncRuntime } = await import('./runtime')
+    getSelfHostedSyncRuntime().stop()
+    await disconnectProfile(profileId)
+  }
   const database = await getDb()
   const keys = await database.select<Array<{ secureStorageKey: string }>>(
     `select k.secure_storage_key as secureStorageKey from self_hosted_workspace_keys k
@@ -668,9 +775,9 @@ async function prepareProfileAccount(profileId: string, previousAccountId: strin
   )
   await Promise.all(keys.map(key => secureDelete(key.secureStorageKey)))
   await database.execute(
-    `update self_hosted_workspace_bindings set binding_state = 'account-changed',
+    `update self_hosted_workspace_bindings set binding_state = $3,
        access_mode = 'read-only', updated_at = $1 where profile_id = $2`,
-    [Date.now(), profileId]
+    [Date.now(), profileId, instanceChanged ? 'instance-changed' : 'account-changed']
   )
   await database.execute(
     `delete from self_hosted_workspace_keys where workspace_id in (
