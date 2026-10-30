@@ -155,6 +155,8 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 
 ## 定制版云端构建（2026-10-30 配置）
 
+2026-10-31：macOS 构建 runner 切换为 `macos-15`，目标仍为 `aarch64-apple-darwin`。GitHub 将于 2026-11-02 停用 `macos-14`，退役前会缩容/阶段性停机；首次运行的 macOS 任务未取得 runner，Windows 和 Android 构建及 Android 签名已成功。配置变更只对新启动的运行生效，已有运行及其重试仍使用旧配置；不自动取消已有任务。
+
 新增 `.github/workflows/custom-dev-build.yml`，与上游 `release.yml` 独立。详情见 `scripts/custom-release/README.md`。
 
 - 固定目标：Windows x64 NSIS、Apple Silicon DMG、Android ARM64 APK；公开仓库标准 runner，不使用付费大规格机器。

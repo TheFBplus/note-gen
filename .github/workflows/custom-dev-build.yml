@@ -130,7 +130,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             platform: windows-x64
             bundle: nsis
-          - runner: macos-14
+          - runner: macos-15
             target: aarch64-apple-darwin
             platform: macos-arm64
             bundle: dmg
