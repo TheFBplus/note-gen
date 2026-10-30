@@ -157,6 +157,8 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 
 2026-10-31：macOS 构建 runner 切换为 `macos-15`，目标仍为 `aarch64-apple-darwin`。GitHub 将于 2026-11-02 停用 `macos-14`，退役前会缩容/阶段性停机；首次运行的 macOS 任务未取得 runner，Windows 和 Android 构建及 Android 签名已成功。配置变更只对新启动的运行生效，已有运行及其重试仍使用旧配置；不自动取消已有任务。
 
+2026-10-31 调整：`custom-dev-build.yml` 已移除 schedule，仅手动构建最新 dev。新增 `upstream-release-watch.yml` 每日北京时间 11:17 或手动检查上游正式 Releases；首次建立历史基线，后续按 Release ID 创建一次提醒 Issue，不打包、不合并、不访问签名密钥。去重状态位于独立分支 `codex/upstream-release-state` 的 JSON 文件中，包含已关闭 Issue 的故障重试去重；不要删除状态分支。详见 `scripts/custom-release/README.md`。本地新增 7 项提醒回归及原 17 项控制面回归、两个工作流 actionlint 通过。下列 2026-10-30 的每日打包说明为历史配置，以本段为准。
+
 新增 `.github/workflows/custom-dev-build.yml`，与上游 `release.yml` 独立。详情见 `scripts/custom-release/README.md`。
 
 - 固定目标：Windows x64 NSIS、Apple Silicon DMG、Android ARM64 APK；公开仓库标准 runner，不使用付费大规格机器。

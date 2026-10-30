@@ -8,8 +8,6 @@ on:
         description: Rebuild even when this upstream/custom pair was published
         type: boolean
         default: false
-  schedule:
-    - cron: '17 3 * * *' # 北京时间每天 11:17，GitHub 调度可能延迟。
 
 permissions:
   contents: read

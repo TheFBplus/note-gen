@@ -60,11 +60,11 @@ Android 编译任务不接触私钥；单独签名任务只执行受控的自动
 
 该签名不是官方签名，不能直接覆盖官方 Android 安装版。第一次切换至自签名版需要规划应用标识及数据迁移；不要为了安装新包直接卸载仍含重要本地数据的旧应用。后续相同签名的定制版可继续更新。
 
-## 自动行为
+## 手动构建行为
 
-- 每天 UTC 03:17（北京时间 11:17）检查一次，同时保留手动入口。GitHub 调度可能延迟，公开仓库长时间无活动也可能自动停用定时任务。
-- 不监听别人仓库的 push；每次定时或手动运行时主动 fetch 上游 `dev`。
-- 固定本次上游提交和自定义分支提交。完全相同的一对源码已有已发布版本时跳过。修改我们自己的源码后，下一次检查也会发现变化。
+- 仅通过 Actions → Custom dev packages → Run workflow 手动启动，不设定时，不监听 push、PR 或上游发布事件；失败后也不会自动定时重试。
+- 每次手动运行时主动 fetch 上游 `dev`，与最新 `codex/html-embed` 合并。
+- 固定本次上游提交和自定义分支提交。完全相同的一对源码已有已发布版本时跳过；force 可以重新构建。修改我们自己的源码后，需手动启动新一轮构建。
 - 从功能分支创建候选合并，只把候选提交推到本次专用的 `codex/ci-build-*` 临时分支。不改写 `dev` 或 `codex/html-embed`。
 - 合并冲突记录文件名并退出；无冲突后还要执行类型检查、HTML Embed 的普通/DOM/React 回归及原有代码块回归。无文本冲突不代表必然兼容。
 - 检查通过后并行编译三平台。包版本使用上游三段版本加 `-custom.<run_number>`；Android versionCode 为 `1000000000 + run_number`，Mac bundleVersion 为 run_number。请保留该工作流的运行序列，换工作流/仓库时先规划 versionCode 连续性。
@@ -73,6 +73,20 @@ Android 编译任务不接触私钥；单独签名任务只执行受控的自动
 - 发布成功后清理本轮重复的包 Artifact，并删除临时分支；来源仍可通过 Release 标签追溯。失败元数据保留 7 天，包产物最多 3 天，未签名 Android 中间包最多 1 天。
 
 只有合并结果经你确认并合并回功能分支后，后续维护分支才会前进。本流程自动生成候选安装包，不替代源码审查。
+
+## 每日上游正式发布提醒
+
+独立工作流 **Upstream release reminder**（`upstream-release-watch.yml`）每天 UTC 03:17 / 北京时间 11:17 检查 `codexu/note-gen` 的 GitHub Releases，也支持 Run workflow 手动检查；仅在默认分支运行。它不检查 dev 提交，不合并、不打包、不访问 Android 密钥，也不启动构建工作流。
+
+- 第一次成功运行只记录当前全部正式发布作为基线，不为历史版本创建 Issue。之后发现新的正式 Release ID 时，每个版本创建一个提醒 Issue，包含版本、UTC 发布时间、Release 链接和手动构建入口。排除草稿和 Prerelease；预发布转正式后会提醒。
+- 去重状态保存于独立分支 `codex/upstream-release-state` 的 `upstream-release-state.json`。该分支不作为代码合并或构建来源，不回写功能分支。请不要删除状态分支；丢失后会重新建立基线。
+- Issue 创建后才保存状态；如果保存失败，重试会检查已有的机器人 Issue（包括已关闭的），避免对同一 Release 再次通知。没有变化不提交状态。多次运行串行执行。
+- 第一次运行完成前发布的版本都会纳入基线，因此启用后应先手动运行一次，建立基线。
+- 请关注本仓库 Issues 并配置 GitHub 邮件/手机通知。提醒检查自身失败会在 Actions 显示失败，需要开启 Actions 失败通知。
+- 11:17 是计划时间，GitHub 调度与 runner 排队可能延迟；公开仓库长时间无活动可能自动停用定时工作流，需要重新启用。
+- 提醒对应正式 Release；手动构建仍获取运行时最新 dev，可能包含该正式版之后的开发改动。收到提醒不会自动执行任何构建。
+
+改变工作流配置不会影响已启动的构建或其重试；新触发的运行使用新配置。已有运行不会自动取消。
 
 ## 更新与安装边界
 
@@ -95,6 +109,7 @@ Android 编译任务不接触私钥；单独签名任务只执行受控的自动
 
 ```bash
 python3 scripts/custom-release/test_pipeline.py
+python3 scripts/custom-release/test_watch_upstream.py
 node scripts/custom-release/test-update-channel.mjs
 COREPACK_ENABLE_AUTO_PIN=0 pnpm exec tsc --noEmit --incremental false
 COREPACK_ENABLE_AUTO_PIN=0 pnpm exec eslint src/lib/custom-build.ts src/extensions/custom-updates src/stores/update.ts src/app/core/setting/about/updater.tsx
