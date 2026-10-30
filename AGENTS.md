@@ -160,8 +160,10 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 - 固定目标：Windows x64 NSIS、Apple Silicon DMG、Android ARM64 APK；公开仓库标准 runner，不使用付费大规格机器。
 - 每日 UTC 03:17 或手动检查上游 dev，将其合并到功能分支来源的临时候选；不改写 dev/功能分支。相同来源已有已发布包时跳过，冲突或测试失败中止。
 - 三平台全部成功后才公开定制 Prerelease，附来源及 SHA256。失败维护同一个 Issue，成功恢复后关闭；清理临时分支和已发布包的重复 Artifact。
-- Android 使用固定的 CUSTOM_ANDROID_KEYSTORE_BASE64 / CUSTOM_ANDROID_KEYSTORE_PASSWORD / CUSTOM_ANDROID_KEY_PASSWORD Secrets，别名 Variable 可选；编译任务不接触私钥。用户目前没有 keystore，已提供仓库外生成说明，不能自动生成临时签名替代。
+- Android 使用固定的 CUSTOM_ANDROID_KEYSTORE_BASE64 / CUSTOM_ANDROID_KEYSTORE_PASSWORD / CUSTOM_ANDROID_KEY_PASSWORD Secrets，别名 Variable 可选；编译任务不接触私钥。已于 2026-10-30 在本机仓库外生成固定 PKCS12/RSA 3072 密钥（别名 notegen-custom，有效期 10000 天），密码存于 macOS 钥匙串 NoteGen Android signing password；三个 Secrets 已配置，不可每次生成临时签名替代。
 - 定制 CI 设置 NEXT_PUBLIC_NOTEGEN_CUSTOM_BUILD=1：独立的 custom-updates 模块和少量更新入口接入会停用官方更新检查，下载入口指向本 fork。普通本地构建不受影响。当前没有定制自动安装服务，不生成 latest.json，也不覆盖电脑安装版。
-- 2026-10-30 已推送配置提交 f8788e80，将 GitHub 默认分支设为 codex/html-embed 并开启 Issues；Actions 页面已显示可手动运行的 Custom dev packages。尚需用户配置 Android 签名 Secrets，未启动首次云端构建。
+- 2026-10-30 已推送配置提交 f8788e80，将 GitHub 默认分支设为 codex/html-embed 并开启 Issues；Actions 页面已显示可手动运行的 Custom dev packages。Android 签名 Secrets 已配置，首次云端构建已启动，运行链接见下方。
 - 配置文件与账号设置分开记录；提交、推送、云端启用状态以实际结果为准。首次三平台云端构建和安装仍需查看实际结果。
-- 本轮本地验证已通过 actionlint、17 项云端控制面回归、定制/普通更新渠道回归、类型检查、相关 ESLint 和定制标志下的前端生产构建。三平台云端首轮尚未执行。用户已明确授权并已完成本轮配置的提交推送、默认分支切换和 Issues 启用；命令行无 GitHub 凭据，推送通过已登录的 GitHub Desktop 完成，远端提交及仓库状态已核对。
+- 本轮本地验证已通过 actionlint、17 项云端控制面回归、定制/普通更新渠道回归、类型检查、相关 ESLint 和定制标志下的前端生产构建。三平台云端首轮已启动，最终产物及签名结果须查看 Actions。用户已明确授权并已完成本轮配置的提交推送、默认分支切换和 Issues 启用；命令行无 GitHub 凭据，推送通过已登录的 GitHub Desktop 完成，远端提交及仓库状态已核对。
+
+- 首次运行：https://github.com/TheFBplus/note-gen/actions/runs/41078996240 。2026-10-30 启动后已确认 prepare 和 credentials 成功，validate 进行中；这不等于三平台打包或 APK 签名验证已通过。密钥文件与公钥证书信息保存在本机 `~/.config/notegen-signing/`（目录 700、文件 600），密码未写入仓库或明文文件。请通过钥匙串访问读取并备份密码，不要在聊天或日志中输出。

@@ -107,4 +107,8 @@ Git 测试仅使用临时本地仓库，覆盖成功合并、冲突中止、不�
 
 2026-10-30 本地验证：actionlint、17 项控制面回归、更新渠道回归、类型检查、相关 ESLint 和定制模式前端生产构建通过。Android 图标生成命令也已实际验证。首次云端三平台构建仍待 Android 签名 Secrets 配置完成后执行。
 
-GitHub 启用状态（2026-10-30）：配置已推送，默认分支已切换为 `codex/html-embed`，Issues 已开启，`Custom dev packages` 工作流有可用的 Run workflow 入口。尚未配置 Android 签名 Secrets，首次运行待配置完成后执行。
+GitHub 启用状态（2026-10-30）：配置已推送，默认分支已切换为 `codex/html-embed`，Issues 已开启，`Custom dev packages` 工作流有可用的 Run workflow 入口。Android 签名 Secrets 已于 2026-10-30 配置，首次运行已启动。
+
+本机签名状态（2026-10-30）：固定密钥为 `~/.config/notegen-signing/notegen-custom.p12`，密码存于 macOS 钥匙串的 **NoteGen Android signing password**（service: `com.thefbplus.notegen.android-release`，account: `notegen-custom`）。没有创建明文密码文件；公共证书与指纹记录在同目录的 `certificate-info.json`。备份时应保留密钥和密码，不要把它们加入仓库。
+
+首次云端运行：https://github.com/TheFBplus/note-gen/actions/runs/41078996240 。启动后 prepare 和 credentials 成功，后续测试/编译/签名结果以该运行页面为准。
