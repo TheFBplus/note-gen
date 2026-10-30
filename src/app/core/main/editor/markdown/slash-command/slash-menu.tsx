@@ -109,6 +109,8 @@ export const SlashMenu = forwardRef<SlashMenuRef, SlashMenuProps>(({ editor, ran
       blockquoteDesc: t('items.blockquoteDesc'),
       codeBlock: t('items.codeBlock'),
       codeBlockDesc: t('items.codeBlockDesc'),
+      htmlEmbed: t('items.htmlEmbed'),
+      htmlEmbedDesc: t('items.htmlEmbedDesc'),
       divider: t('items.divider'),
       dividerDesc: t('items.dividerDesc'),
       inlineMath: t('items.inlineMath'),

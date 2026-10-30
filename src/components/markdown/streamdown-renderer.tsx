@@ -21,6 +21,7 @@ import { codeHighlighter } from '@/lib/code-highlighter'
 import type { AgentArtifactPaths } from '@/lib/agent/artifacts'
 import { ArtifactLink, ArtifactLinksContext, EMPTY_ARTIFACT_LINKS, artifactLinkIndex } from './artifact-link'
 import { remarkArtifacts } from './remark-artifacts'
+import { remarkHtmlEmbedFiles } from '@/extensions/html-embed/remark'
 import 'katex/dist/katex.min.css'
 import 'streamdown/styles.css'
 import './streamdown-renderer.css'
@@ -171,6 +172,7 @@ export function StreamdownRenderer({
     : plugins, [exportCodeHighlighter])
   const remarkPlugins = useMemo<NonNullable<ComponentProps<typeof Streamdown>['remarkPlugins']>>(() => [
     ...Object.values(defaultRemarkPlugins),
+    remarkHtmlEmbedFiles,
     [remarkArtifacts, { targets: artifacts.artifacts, paths: artifacts.paths }],
   ], [artifacts])
   // Streamdown's memo comparison ignores remarkPlugins; new output metadata

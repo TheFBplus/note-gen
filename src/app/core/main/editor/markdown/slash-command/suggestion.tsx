@@ -28,6 +28,7 @@ import {
   Image as ImageIcon,
   FilePlus,
 } from 'lucide-react'
+import { EMPTY_HTML_EMBED } from '@/extensions/html-embed/extension'
 import { SuggestionProps } from '@tiptap/suggestion'
 import { type Editor, type Range } from '@tiptap/core'
 import type { EditorView } from '@tiptap/pm/view'
@@ -317,6 +318,8 @@ export interface SlashCommandTranslations {
     blockquoteDesc: string
     codeBlock: string
     codeBlockDesc: string
+    htmlEmbed: string
+    htmlEmbedDesc: string
     divider: string
     dividerDesc: string
     inlineMath: string
@@ -415,6 +418,8 @@ export const suggestionItems = (t?: SlashCommandTranslations): SlashCommandItem[
       blockquoteDesc: '捕获引用内容',
       codeBlock: '代码块',
       codeBlockDesc: '捕获代码片段',
+      htmlEmbed: 'HTML 嵌入',
+      htmlEmbedDesc: '插入可交互的 HTML 组件',
       divider: '分割线',
       dividerDesc: '在元素之间创建分隔线',
       inlineMath: '行内公式',
@@ -452,6 +457,16 @@ export const suggestionItems = (t?: SlashCommandTranslations): SlashCommandItem[
   const tr = t || defaultT
 
   const items: SlashCommandItem[] = [
+    {
+      title: tr.items.htmlEmbed,
+      description: tr.items.htmlEmbedDesc,
+      icon: <Code className="w-4 h-4" />,
+      group: tr.groups.embed,
+      searchTerms: ['html', 'embed', 'iframe', '嵌入'],
+      command: ({ editor, range }) => {
+        editor.chain().focus().deleteRange(range).insertContent(EMPTY_HTML_EMBED).run()
+      },
+    },
     // AI
     {
       title: tr.items.continue,

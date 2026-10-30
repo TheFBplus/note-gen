@@ -32,6 +32,7 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import 'katex/dist/katex.min.css'
 import { InlineMath, BlockMath } from './math-extension'
 import { MermaidDiagram } from './mermaid-extension'
+import { HtmlEmbed, EMPTY_HTML_EMBED } from '@/extensions/html-embed/extension'
 import { SearchReplacePanel } from './search-replace-panel'
 import { useEffect, useId, useLayoutEffect, useRef, useCallback, useMemo, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type UIEvent as ReactUIEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import { createPortal } from 'react-dom'
@@ -2560,7 +2561,7 @@ export function TipTapEditor({
     for (const notifyContextChanged of imageSourceContextSubscribersRef.current) {
       notifyContextChanged()
     }
-  }, [activeFilePath])
+  }, [activeFilePath, readingWorkspacePath])
 
   const {
     contentTextScale,
@@ -2890,6 +2891,13 @@ export function TipTapEditor({
       InlineMath,
       BlockMath,
       MermaidDiagram,
+      HtmlEmbed.configure({
+        getDocumentPath: () => activeFilePathRef.current || '',
+        subscribeDocumentChange: callback => {
+          imageSourceContextSubscribersRef.current.add(callback)
+          return () => imageSourceContextSubscribersRef.current.delete(callback)
+        },
+      }),
       Image.extend({
         addAttributes() {
           return {
@@ -4784,6 +4792,9 @@ export function TipTapEditor({
         return
       case 'insert-ordered-list':
         runCommand(() => editor.chain().focus().toggleOrderedList().run())
+        return
+      case 'insert-html-embed':
+        runCommand(() => editor.chain().focus().insertContent(EMPTY_HTML_EMBED).run())
         return
       case 'insert-code-block':
         runCommand(() => editor.chain().focus().toggleCodeBlock().run())

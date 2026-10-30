@@ -1,5 +1,6 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -40,6 +41,7 @@ type MobileWritingToolbarAction =
   | 'insert-bullet-list'
   | 'insert-ordered-list'
   | 'insert-code-block'
+  | 'insert-html-embed'
   | 'insert-horizontal-rule'
   | 'insert-image'
   | 'insert-table'
@@ -128,6 +130,7 @@ const SECONDARY_ITEMS: Record<Exclude<MobileWritingToolbarMenu, 'root'>, Toolbar
   ],
   block: [
     { kind: 'action', action: 'insert-blockquote', label: '引用', icon: Quote },
+    { kind: 'action', action: 'insert-html-embed', label: 'HTML', icon: Code2 },
     { kind: 'action', action: 'insert-code-block', label: '代码块', icon: Code2 },
     { kind: 'action', action: 'insert-horizontal-rule', label: '分割线', icon: Minus },
     { kind: 'action', action: 'insert-image', label: '图片', icon: ImagePlus },
@@ -153,6 +156,7 @@ export function MobileWritingToolbar({
   activeActions = [],
   onAction,
 }: MobileWritingToolbarProps) {
+  const tEmbed = useTranslations('editor.htmlEmbed')
   const [activeMenu, setActiveMenu] = useState<MobileWritingToolbarMenu>('root')
   const items = activeMenu === 'root'
     ? ROOT_ITEMS
@@ -183,6 +187,7 @@ export function MobileWritingToolbar({
         )}
 
         {items.map((item) => {
+          const label = item.kind === 'action' && item.action === 'insert-html-embed' ? tEmbed('title') : item.label
           const Icon = item.icon
           const isActive = item.kind === 'action' && activeActions.includes(item.action)
 
@@ -190,8 +195,8 @@ export function MobileWritingToolbar({
             <Button
               key={item.kind === 'menu' ? item.menu : item.action}
               type="button"
-              aria-label={item.label}
-              title={item.label}
+              aria-label={label}
+              title={label}
               variant="ghost"
               size="sm"
               className={cn(
@@ -212,7 +217,7 @@ export function MobileWritingToolbar({
               }}
             >
               <Icon className="size-4" />
-              <span>{item.label}</span>
+              <span>{label}</span>
             </Button>
           )
         })}

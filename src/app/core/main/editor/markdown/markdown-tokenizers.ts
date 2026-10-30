@@ -1,5 +1,6 @@
 import { getExtensionField, type AnyExtension, type MarkdownTokenizer } from '@tiptap/core'
 import { ColorHighlight, TextColor } from './color-marks'
+import { htmlEmbedTokenizer } from '@/extensions/html-embed/markdown'
 import { OrderedList, TaskList } from '@tiptap/extension-list'
 import Underline from '@tiptap/extension-underline'
 import { Lexer, Marked, type MarkedOptions, type Token, type TokenizerExtension } from 'marked'
@@ -112,6 +113,7 @@ const markdownTokenizers: readonly MarkdownTokenizer[] = [
   inlineMathTokenizer,
   blockMathTokenizer,
   mermaidTokenizer,
+  htmlEmbedTokenizer,
 ]
 
 export const MARKDOWN_TOKENIZER_NAMES = markdownTokenizers.map(tokenizer => tokenizer.name)
