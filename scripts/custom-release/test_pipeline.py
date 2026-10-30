@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 from pathlib import Path
 import struct
 import tempfile
@@ -17,6 +18,39 @@ spec.loader.exec_module(p)
 
 
 class PipelineTests(unittest.TestCase):
+    def test_macos_keeps_app_for_architecture_check_and_collects_only_dmg(self):
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/custom-dev-build.yml').read_text()
+        macos = workflow.split('target: aarch64-apple-darwin', 1)[1].split('runs-on:', 1)[0]
+        bundles = re.search(r'bundle:\s*([^\n]+)', macos).group(1).split(',')
+        self.assertEqual(set(bundles), {'app', 'dmg'})
+        target = self.root / 'source/src-tauri/target/aarch64-apple-darwin/release/bundle'
+        app = target / 'macos/NoteGen.app'
+        app.mkdir(parents=True)
+        dmg = target / 'dmg/NoteGen.dmg'
+        dmg.parent.mkdir()
+        dmg.write_bytes(b'fixture-dmg')
+        p.save(self.root / 'metadata.json', {'version': '0.39.1-custom.42'})
+        with patch.object(p, 'run') as command:
+            command.return_value.stdout = 'arm64\n'
+            p.collect(self.args(platform='macos-arm64'))
+            self.assertEqual([c.args for c in command.call_args_list], [
+                ('lipo', '-archs', str(app / 'Contents/MacOS/note-gen')),
+                ('lipo', '-archs', str(app / 'Contents/Resources/resources/ocr/notegen-ocr-vision')),
+            ])
+        packages = list((self.root / 'packages').iterdir())
+        self.assertEqual([f.name for f in packages], ['NoteGen_0.39.1-custom.42_macos-arm64.dmg'])
+        self.assertEqual(packages[0].read_bytes(), b'fixture-dmg')
+
+    def test_macos_wrong_architecture_does_not_collect_installer(self):
+        app = self.root / 'source/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/NoteGen.app'
+        app.mkdir(parents=True)
+        p.save(self.root / 'metadata.json', {'version': '0.39.1-custom.42'})
+        with patch.object(p, 'run') as command:
+            command.return_value.stdout = 'x86_64\n'
+            with self.assertRaisesRegex(p.PipelineError, 'Expected arm64 Mach-O'):
+                p.collect(self.args(platform='macos-arm64'))
+        self.assertEqual(list((self.root / 'packages').iterdir()), [])
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)

@@ -62,6 +62,8 @@ Android 编译任务不接触私钥；单独签名任务只执行受控的自动
 
 ## 手动构建行为
 
+macOS 使用 `macos-15`，显式指定 `--bundles app,dmg` 保留 `.app` 供主程序与 OCR helper 的 ARM64 架构校验；仅指定 dmg 时 Tauri 会在成功生成磁盘映像后清理中间 `.app`。最终只收集、上传和发布 DMG，不额外发布 `.app`。
+
 - 仅通过 Actions → Custom dev packages → Run workflow 手动启动，不设定时，不监听 push、PR 或上游发布事件；失败后也不会自动定时重试。
 - 每次手动运行时主动 fetch 上游 `dev`，与最新 `codex/html-embed` 合并。
 - 固定本次上游提交和自定义分支提交。完全相同的一对源码已有已发布版本时跳过；force 可以重新构建。修改我们自己的源码后，需手动启动新一轮构建。

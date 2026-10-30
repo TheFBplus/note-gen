@@ -131,7 +131,8 @@ jobs:
           - runner: macos-15
             target: aarch64-apple-darwin
             platform: macos-arm64
-            bundle: dmg
+            # 显式保留 app，避免仅打包 dmg 后 Tauri 清理 app，导致后续架构校验失败。
+            bundle: app,dmg
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
