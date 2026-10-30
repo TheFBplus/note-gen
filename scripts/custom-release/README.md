@@ -106,3 +106,5 @@ Git 测试仅使用临时本地仓库，覆盖成功合并、冲突中止、不�
 本地验证不等于云端三平台首次构建成功；正式启用后仍须查看每个平台的首轮日志和实际安装结果。
 
 2026-10-30 本地验证：actionlint、17 项控制面回归、更新渠道回归、类型检查、相关 ESLint 和定制模式前端生产构建通过。Android 图标生成命令也已实际验证。首次云端三平台构建仍待 Android 签名 Secrets 配置完成后执行。
+
+GitHub 启用状态（2026-10-30）：配置已推送，默认分支已切换为 `codex/html-embed`，Issues 已开启，`Custom dev packages` 工作流有可用的 Run workflow 入口。尚未配置 Android 签名 Secrets，首次运行待配置完成后执行。

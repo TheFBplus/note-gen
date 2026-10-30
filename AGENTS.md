@@ -162,6 +162,6 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 - 三平台全部成功后才公开定制 Prerelease，附来源及 SHA256。失败维护同一个 Issue，成功恢复后关闭；清理临时分支和已发布包的重复 Artifact。
 - Android 使用固定的 CUSTOM_ANDROID_KEYSTORE_BASE64 / CUSTOM_ANDROID_KEYSTORE_PASSWORD / CUSTOM_ANDROID_KEY_PASSWORD Secrets，别名 Variable 可选；编译任务不接触私钥。用户目前没有 keystore，已提供仓库外生成说明，不能自动生成临时签名替代。
 - 定制 CI 设置 NEXT_PUBLIC_NOTEGEN_CUSTOM_BUILD=1：独立的 custom-updates 模块和少量更新入口接入会停用官方更新检查，下载入口指向本 fork。普通本地构建不受影响。当前没有定制自动安装服务，不生成 latest.json，也不覆盖电脑安装版。
-- GitHub 当前默认分支为 dev，Issues 未启用。云端首次启用需推送配置、将默认分支设为 codex/html-embed、启用 Actions/Issues 并配置 Android Secrets。没有凭据时不能声称这些账号设置已完成。
+- 2026-10-30 已推送配置提交 f8788e80，将 GitHub 默认分支设为 codex/html-embed 并开启 Issues；Actions 页面已显示可手动运行的 Custom dev packages。尚需用户配置 Android 签名 Secrets，未启动首次云端构建。
 - 配置文件与账号设置分开记录；提交、推送、云端启用状态以实际结果为准。首次三平台云端构建和安装仍需查看实际结果。
-- 本轮本地验证已通过 actionlint、17 项云端控制面回归、定制/普通更新渠道回归、类型检查、相关 ESLint 和定制标志下的前端生产构建。三平台云端首轮尚未执行。用户已明确授权提交推送本轮配置、将默认分支设为 codex/html-embed 并开启 Issues；实际执行结果另行记录。
+- 本轮本地验证已通过 actionlint、17 项云端控制面回归、定制/普通更新渠道回归、类型检查、相关 ESLint 和定制标志下的前端生产构建。三平台云端首轮尚未执行。用户已明确授权并已完成本轮配置的提交推送、默认分支切换和 Issues 启用；命令行无 GitHub 凭据，推送通过已登录的 GitHub Desktop 完成，远端提交及仓库状态已核对。
