@@ -1,4 +1,11 @@
 {
+  "customBuild": {
+    "title": "自訂開發版",
+    "description": "此版本包含自訂擴充功能，已關閉官方安裝套件更新。",
+    "manual": "請從本 fork 的 Releases 下載新版，備份資料後手動安裝。",
+    "download": "開啟自訂版下載頁",
+    "openFailed": "無法開啟瀏覽器，請前往："
+  },
   "screenshotPin": {
     "title": "貼圖",
     "drag": "拖曳貼圖",

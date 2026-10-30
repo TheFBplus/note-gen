@@ -1,4 +1,11 @@
 {
+  "customBuild": {
+    "title": "Versão de desenvolvimento personalizada",
+    "description": "Esta versão inclui extensões próprias. As atualizações de pacotes oficiais estão desativadas.",
+    "manual": "Baixe novas versões em Releases deste fork. Faça backup dos dados e instale manualmente.",
+    "download": "Abrir versões personalizadas",
+    "openFailed": "Não foi possível abrir o navegador:"
+  },
   "screenshotPin": {
     "title": "Captura fixada",
     "drag": "Mover imagem fixada",

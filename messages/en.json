@@ -1,4 +1,11 @@
 {
+  "customBuild": {
+    "title": "Custom dev build",
+    "description": "This build includes custom extensions. Official package updates are disabled.",
+    "manual": "Download newer custom builds from this fork’s Releases. Install them manually after backing up your data.",
+    "download": "Open custom releases",
+    "openFailed": "Could not open the browser. Visit:"
+  },
   "screenshotPin": {
     "title": "Pinned screenshot",
     "drag": "Move pinned image",

@@ -1,4 +1,11 @@
 {
+  "customBuild": {
+    "title": "定制开发版",
+    "description": "此构建包含自定义扩展，已关闭官方安装包更新。",
+    "manual": "请从本 fork 的 Releases 下载新定制版，备份数据后手动安装。",
+    "download": "打开定制版下载页",
+    "openFailed": "无法打开浏览器，请访问："
+  },
   "screenshotPin": {
     "title": "贴图",
     "drag": "拖动贴图",

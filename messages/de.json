@@ -1,4 +1,11 @@
 {
+  "customBuild": {
+    "title": "Angepasste Entwicklungsversion",
+    "description": "Dieser Build enthält eigene Erweiterungen. Offizielle Paketupdates sind deaktiviert.",
+    "manual": "Neue Builds unter Releases dieses Forks herunterladen und nach einer Datensicherung manuell installieren.",
+    "download": "Angepasste Versionen öffnen",
+    "openFailed": "Browser konnte nicht geöffnet werden:"
+  },
   "screenshotPin": {
     "title": "Angehefteter Screenshot",
     "drag": "Angeheftetes Bild verschieben",

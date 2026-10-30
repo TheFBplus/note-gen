@@ -151,3 +151,17 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 - 示例笔记 `HTML文件引用演示.md` 引用工作区的 `embeds/灵感实验室.html`；另有旧的 `测试html.md`。这些属于用户笔记工作区，在代码仓库之外，不纳入 Git 提交。
 - 如需定位用户工作区，只读取应用设置中必要的 `workspacePath` 等字段，不要输出或提交完整 `store.json`（其中可能有凭据）。不要假定其他机器存在本机演示文件。
 - 已删除所有临时验证路由、临时原生测试入口和测试 HTML。生成的 worker、构建产物、截图、应用设置、个人笔记和测试用第三方依赖均不入库。
+
+
+## 定制版云端构建（2026-10-30 配置）
+
+新增 `.github/workflows/custom-dev-build.yml`，与上游 `release.yml` 独立。详情见 `scripts/custom-release/README.md`。
+
+- 固定目标：Windows x64 NSIS、Apple Silicon DMG、Android ARM64 APK；公开仓库标准 runner，不使用付费大规格机器。
+- 每日 UTC 03:17 或手动检查上游 dev，将其合并到功能分支来源的临时候选；不改写 dev/功能分支。相同来源已有已发布包时跳过，冲突或测试失败中止。
+- 三平台全部成功后才公开定制 Prerelease，附来源及 SHA256。失败维护同一个 Issue，成功恢复后关闭；清理临时分支和已发布包的重复 Artifact。
+- Android 使用固定的 CUSTOM_ANDROID_KEYSTORE_BASE64 / CUSTOM_ANDROID_KEYSTORE_PASSWORD / CUSTOM_ANDROID_KEY_PASSWORD Secrets，别名 Variable 可选；编译任务不接触私钥。用户目前没有 keystore，已提供仓库外生成说明，不能自动生成临时签名替代。
+- 定制 CI 设置 NEXT_PUBLIC_NOTEGEN_CUSTOM_BUILD=1：独立的 custom-updates 模块和少量更新入口接入会停用官方更新检查，下载入口指向本 fork。普通本地构建不受影响。当前没有定制自动安装服务，不生成 latest.json，也不覆盖电脑安装版。
+- GitHub 当前默认分支为 dev，Issues 未启用。云端首次启用需推送配置、将默认分支设为 codex/html-embed、启用 Actions/Issues 并配置 Android Secrets。没有凭据时不能声称这些账号设置已完成。
+- 配置文件与账号设置分开记录；提交、推送、云端启用状态以实际结果为准。首次三平台云端构建和安装仍需查看实际结果。
+- 本轮本地验证已通过 actionlint、17 项云端控制面回归、定制/普通更新渠道回归、类型检查、相关 ESLint 和定制标志下的前端生产构建。三平台云端首轮尚未执行。用户已明确授权提交推送本轮配置、将默认分支设为 codex/html-embed 并开启 Issues；实际执行结果另行记录。

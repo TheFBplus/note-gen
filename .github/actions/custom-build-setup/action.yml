@@ -1,0 +1,50 @@
+name: Custom build dependencies
+description: Reproducible frontend and optional Rust setup for custom dev packages
+inputs:
+  source-dir:
+    description: Candidate checkout directory
+    default: source
+  rust-target:
+    description: Optional native compilation target
+    default: ''
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: '3.12'
+    - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      with:
+        version: 10.33.0
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: 22.16.0
+        cache: pnpm
+        cache-dependency-path: ${{ inputs.source-dir }}/pnpm-lock.yaml
+    - name: Install locked frontend dependencies
+      shell: bash
+      working-directory: ${{ inputs.source-dir }}
+      run: pnpm install --frozen-lockfile
+    - name: Install repository Rust toolchain
+      if: inputs.rust-target != ''
+      shell: bash
+      working-directory: ${{ inputs.source-dir }}
+      env:
+        RUST_TARGET: ${{ inputs.rust-target }}
+      run: |
+        set -euo pipefail
+        toolchain=$(python3 -c 'import re; print(re.search(r"channel\s*=\s*\"([^\"]+)\"", open("rust-toolchain.toml").read())[1])')
+        rustup toolchain install "$toolchain" --profile minimal --target "$RUST_TARGET"
+    - name: Cache Rust downloads only
+      if: inputs.rust-target != ''
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+        key: custom-cargo-${{ runner.os }}-${{ inputs.rust-target }}-${{ hashFiles(format('{0}/src-tauri/Cargo.lock', inputs.source-dir), format('{0}/rust-toolchain.toml', inputs.source-dir)) }}
+    - name: Check committed marketplace public key
+      shell: bash
+      working-directory: ${{ inputs.source-dir }}
+      run: pnpm plugin-market:check-key

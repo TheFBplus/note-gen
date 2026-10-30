@@ -33,6 +33,8 @@ import {
 } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import MarkdownIt from 'markdown-it';
+import { IS_CUSTOM_BUILD } from '@/lib/custom-build';
+import { CustomBuildUpdates } from '@/extensions/custom-updates/update-panel';
 
 const RELEASE_NOTE_SKELETON_ROWS = [0, 1, 2];
 
@@ -139,6 +141,10 @@ function ReleaseNotesSkeleton() {
 }
 
 export default function Updater() {
+  return IS_CUSTOM_BUILD ? <CustomBuildUpdates /> : <OfficialUpdater />;
+}
+
+function OfficialUpdater() {
   const t = useTranslations('settings.about');
   const locale = useLocale();
   const [checking, setChecking] = useState(false);

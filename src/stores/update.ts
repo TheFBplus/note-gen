@@ -4,10 +4,11 @@ import { create } from 'zustand'
 import { check, Update } from '@tauri-apps/plugin-updater'
 import { fetch as httpFetch } from '@tauri-apps/plugin-http'
 import { compareVersions, extractVersionText } from '@/lib/version'
+import { IS_CUSTOM_BUILD, CUSTOM_RELEASES_URL } from '@/lib/custom-build'
 
 export const MOBILE_UPDATE_MANIFEST_URL = 'https://download.notegen.top/updates/latest.json'
-export const ANDROID_DOWNLOAD_URL = 'https://notegen.top/download'
-export const IOS_TESTFLIGHT_URL = 'https://testflight.apple.com/join/8KjFRTCq'
+export const ANDROID_DOWNLOAD_URL = IS_CUSTOM_BUILD ? CUSTOM_RELEASES_URL : 'https://notegen.top/download'
+export const IOS_TESTFLIGHT_URL = IS_CUSTOM_BUILD ? CUSTOM_RELEASES_URL : 'https://testflight.apple.com/join/8KjFRTCq'
 
 export interface MobileUpdateInfo {
   version: string
@@ -62,6 +63,10 @@ const useUpdateStore = create<UpdateState>((set, get) => ({
   mobileUpdateStatus: 'idle',
   mobileUpdateError: '',
   checkForMobileUpdates: async (currentVersion) => {
+    if (IS_CUSTOM_BUILD) {
+      set({ hasUpdate: false, mobileUpdate: null, mobileUpdateStatus: 'ready', mobileUpdateError: '' })
+      return null
+    }
     set({ mobileUpdateStatus: 'checking', mobileUpdateError: '' })
 
     try {
@@ -131,6 +136,10 @@ const useUpdateStore = create<UpdateState>((set, get) => ({
   },
   
   checkForUpdates: async (options) => {
+    if (IS_CUSTOM_BUILD) {
+      set({ update: null, hasUpdate: false, latestVersion: '' })
+      return
+    }
     try {
       // Never fall back to the legacy MSI target if installation detection fails.
       const target = await invoke<string | null>('get_desktop_update_target')
