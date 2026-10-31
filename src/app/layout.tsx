@@ -12,6 +12,8 @@ import { DeveloperModeController } from "@/components/developer-mode-controller"
 import { AppLockGate } from "@/components/app-lock-gate";
 import { CustomCssController } from "@/components/custom-css-controller";
 
+import { CustomUpdateGuard } from "@/extensions/custom-updates/update-panel";
+
 function AppRuntime({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (['/editor-window', '/quick-record', '/print', '/screenshot'].some(path => window.location.pathname.startsWith(path))) return
@@ -57,7 +59,7 @@ export default function RootLayout({
             <TooltipProvider>
               <NextIntlProvider>
                 <AppLockGate>
-                  <AppRuntime>{children}</AppRuntime>
+                  <AppRuntime>{children}<CustomUpdateGuard /></AppRuntime>
                 </AppLockGate>
               </NextIntlProvider>
             </TooltipProvider>

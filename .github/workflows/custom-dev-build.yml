@@ -77,12 +77,16 @@ jobs:
           HAS_KEYSTORE: ${{ secrets.CUSTOM_ANDROID_KEYSTORE_BASE64 != '' }}
           HAS_STORE_PASSWORD: ${{ secrets.CUSTOM_ANDROID_KEYSTORE_PASSWORD != '' }}
           HAS_KEY_PASSWORD: ${{ secrets.CUSTOM_ANDROID_KEY_PASSWORD != '' }}
+          HAS_UPDATER_KEY: ${{ secrets.CUSTOM_UPDATER_PRIVATE_KEY != '' }}
+          HAS_UPDATER_PASSWORD: ${{ secrets.CUSTOM_UPDATER_KEY_PASSWORD != '' }}
         run: |
           python3 - <<'PY'
           import os, sys
           names = {'HAS_KEYSTORE': 'CUSTOM_ANDROID_KEYSTORE_BASE64',
                    'HAS_STORE_PASSWORD': 'CUSTOM_ANDROID_KEYSTORE_PASSWORD',
-                   'HAS_KEY_PASSWORD': 'CUSTOM_ANDROID_KEY_PASSWORD'}
+                   'HAS_KEY_PASSWORD': 'CUSTOM_ANDROID_KEY_PASSWORD',
+                   'HAS_UPDATER_KEY': 'CUSTOM_UPDATER_PRIVATE_KEY',
+                   'HAS_UPDATER_PASSWORD': 'CUSTOM_UPDATER_KEY_PASSWORD'}
           missing = [name for flag, name in names.items() if os.environ[flag] != 'true']
           if missing:
               print('::error::Configure repository Secrets: ' + ', '.join(missing) + '. See scripts/custom-release/README.md.')
@@ -108,6 +112,7 @@ jobs:
         working-directory: source
         run: |
           python3 ../automation/scripts/custom-release/test_pipeline.py
+          python3 ../automation/scripts/custom-release/test_desktop_updates.py
           node ../automation/scripts/custom-release/test-update-channel.mjs
           test_dir=$(mktemp -d)
           pnpm --dir "$test_dir" add jsdom@26 --ignore-scripts
@@ -263,8 +268,48 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
+  sign-desktop:
+    needs: [prepare, desktop]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: automation
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: custom-package-*
+          merge-multiple: true
+          path: packages
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.16.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.33.0
+      - name: Install trusted signing tools and select updater files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y minisign
+          pnpm --dir "$RUNNER_TEMP/updater-signer" add @tauri-apps/cli@2.11.3 --ignore-scripts
+          mkdir signing
+          cp packages/*_windows-x64-setup.exe packages/*_macos-arm64.app.tar.gz signing/
+      - name: Sign and verify desktop updater files without running candidate scripts
+        env:
+          CUSTOM_TAURI_SIGNER: ${{ runner.temp }}/updater-signer/node_modules/.bin/tauri
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.CUSTOM_UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.CUSTOM_UPDATER_KEY_PASSWORD }}
+        run: python3 automation/scripts/custom-release/pipeline.py sign-desktop --destination signing
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: custom-package-desktop-signatures
+          path: signing/*.sig
+          retention-days: 3
+          if-no-files-found: error
+
   publish:
-    needs: [prepare, desktop, sign-android]
+    needs: [prepare, desktop, sign-desktop, sign-android]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -288,8 +333,33 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 automation/scripts/custom-release/pipeline.py publish --metadata metadata/build-info.json --destination packages
 
+  promote-channel:
+    needs: [prepare, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: automation
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: custom-build-metadata
+          path: metadata
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: custom-package-*
+          merge-multiple: true
+          path: packages
+      - name: Advance channel only after complete Release publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 automation/scripts/custom-release/pipeline.py promote-channel --metadata metadata/build-info.json --destination packages
+
   report:
-    needs: [prepare, credentials, validate, desktop, android, sign-android, publish]
+    needs: [prepare, credentials, validate, desktop, android, sign-android, sign-desktop, publish, promote-channel]
     if: always() && github.repository == 'TheFBplus/note-gen'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -314,14 +384,14 @@ jobs:
           JOB_RESULTS: ${{ toJSON(needs) }}
           PREPARE_RESULT: ${{ needs.prepare.result }}
           CHANGED: ${{ needs.prepare.outputs.changed }}
-          PUBLISH_RESULT: ${{ needs.publish.result }}
+          PUBLISH_RESULT: ${{ needs.promote-channel.result }}
         run: |
           if [ "$PREPARE_RESULT" = "success" ] && [ "$CHANGED" != "true" ]; then exit 0; fi
           args=()
           if [ "$PUBLISH_RESULT" = "success" ]; then args+=(--success); fi
           python3 automation/scripts/custom-release/pipeline.py notify --metadata metadata/build-info.json "${args[@]}"
       - name: Remove duplicate Actions packages after successful Release publication
-        if: needs.publish.result == 'success'
+        if: needs.promote-channel.result == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 automation/scripts/custom-release/pipeline.py cleanup-artifacts --metadata metadata/build-info.json

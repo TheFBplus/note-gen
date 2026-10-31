@@ -11,6 +11,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tarfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -140,7 +141,9 @@ def configure(args):
         'bundle': {'createUpdaterArtifacts': False,
                    'android': {'versionCode': metadata['android_version_code']},
                    'macOS': {'bundleVersion': str(metadata['run_number'])}},
-        'plugins': {'updater': {'endpoints': []}},
+        'plugins': {'updater': {
+            'pubkey': Path(__file__).with_name('updater-public-key.txt').read_text().strip(),
+            'endpoints': ['https://raw.githubusercontent.com/TheFBplus/note-gen/refs/heads/codex/custom-update-channel/latest.json']}},
     })
 
 
@@ -202,6 +205,9 @@ def collect(args):
         for relative in ['Contents/MacOS/note-gen', 'Contents/Resources/resources/ocr/notegen-ocr-vision']:
             if run('lipo', '-archs', str(app / relative)).stdout.strip() != 'arm64':
                 raise PipelineError(f'Expected arm64 Mach-O: {relative}')
+        # 保留符号链接和执行权限，使用 Tauri updater 所需的顶层 .app 目录。
+        with tarfile.open(destination / (prefix + '_macos-arm64.app.tar.gz'), 'w:gz', dereference=False) as archive:
+            archive.add(app, arcname=app.name)
         source = one((target / 'dmg').glob('*.dmg'))
         filename = prefix + '_macos-arm64.dmg'
     else:
@@ -251,8 +257,9 @@ def sign_android(args):
 def release_files(directory):
     files = sorted(Path(directory).iterdir())
     expected = {'_windows-x64-setup.exe', '_macos-arm64.dmg', '_android-arm64.apk'}
-    if len(files) != 3 or {next((suffix for suffix in expected if file.name.endswith(suffix)), '') for file in files} != expected:
-        raise PipelineError('Publication requires exactly the three verified platform packages')
+    expected |= {'_macos-arm64.app.tar.gz', '_macos-arm64.app.tar.gz.sig', '_windows-x64-setup.exe.sig'}
+    if len(files) != len(expected) or {next((suffix for suffix in expected if file.name.endswith(suffix)), '') for file in files} != expected:
+        raise PipelineError('Publication requires all three installers and signed desktop update files')
     if any(not file.is_file() or file.stat().st_size == 0 for file in files):
         raise PipelineError('Missing or empty package')
     return files
@@ -292,7 +299,7 @@ def publish(args):
             f'- Build: {metadata["run_url"]}\n\n'
             'Windows x64, Apple Silicon, Android ARM64. macOS/Windows packages are not publisher-signed; '
             'Android uses your persistent custom key. This is a dev prerelease, not an official NoteGen release. '
-            'Install manually; official update checks are disabled in this build. Back up your notes/settings before upgrading.')
+            'Custom updates use a separate signed channel. Existing older builds need one manual installation. Back up your notes/settings before upgrading.')
     # 先上传到草稿，校验所有文件都已存在后才公开；部分成功不会成为新版本。
     release = api('POST', f'repos/{repo}/releases', {'tag_name': tag, 'target_commitish': metadata['candidate_sha'],
                   'name': f'NoteGen Custom {metadata["version"]}', 'body': body, 'draft': True, 'prerelease': True})
@@ -337,7 +344,7 @@ def cleanup_artifacts(args):
         raise PipelineError('Cannot remove artifacts before successful publication')
     artifacts = api('GET', f'repos/{repo}/actions/runs/{os.environ["GITHUB_RUN_ID"]}/artifacts?per_page=100')
     names = {'custom-package-windows-x64', 'custom-package-macos-arm64',
-             'custom-package-android-arm64', 'custom-android-unsigned'}
+             'custom-package-android-arm64', 'custom-android-unsigned', 'custom-package-desktop-signatures'}
     for item in artifacts['artifacts']:
         if item['name'] in names:
             api('DELETE', f'repos/{repo}/actions/artifacts/{item["id"]}')
@@ -346,7 +353,7 @@ def cleanup_artifacts(args):
 def main():
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest='command', required=True)
-    for command in ['prepare', 'configure', 'android-init', 'collect', 'sign-android', 'publish', 'notify', 'cleanup-artifacts']:
+    for command in ['prepare', 'configure', 'android-init', 'collect', 'sign-android', 'publish', 'notify', 'cleanup-artifacts', 'sign-desktop', 'promote-channel']:
         item = sub.add_parser(command)
         item.add_argument('--root', default='.')
         item.add_argument('--metadata', default='build-info.json')
@@ -366,6 +373,9 @@ def main():
     functions = {'prepare': prepare, 'configure': configure, 'android-init': prepare_android, 'collect': collect,
                  'sign-android': sign_android, 'publish': publish, 'notify': notify, 'cleanup-artifacts': cleanup_artifacts}
     try:
+        if args.command in ['sign-desktop', 'promote-channel']:
+            from desktop_updates import sign, promote
+            functions.update({'sign-desktop': sign, 'promote-channel': promote})
         functions[args.command](args)
     except (PipelineError, OSError, ValueError, KeyError) as error:
         print(f'::error::{error}', file=sys.stderr)
@@ -374,4 +384,6 @@ def main():
 
 
 if __name__ == '__main__':
+    # 独立签名/渠道模块复用同一套 API 和异常类型。
+    sys.modules['pipeline'] = sys.modules[__name__]
     sys.exit(main())

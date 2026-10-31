@@ -1,10 +1,23 @@
 {
   "customBuild": {
     "title": "Angepasste Entwicklungsversion",
-    "description": "Dieser Build enthält eigene Erweiterungen. Offizielle Paketupdates sind deaktiviert.",
-    "manual": "Neue Builds unter Releases dieses Forks herunterladen und nach einer Datensicherung manuell installieren.",
+    "description": "Updates stammen nur aus dem signierten Kanal dieses Forks.",
+    "manual": "Desktop-Updates erfordern einen Neustart. Android öffnet den APK-Download; bestätigen Sie die Installation im System. Sichern Sie vorher wichtige Daten.",
     "download": "Angepasste Versionen öffnen",
-    "openFailed": "Browser konnte nicht geöffnet werden:"
+    "openFailed": "Browser konnte nicht geöffnet werden:",
+    "current": "Aktuelle Version: {version}",
+    "available": "Neue angepasste Version: {version}",
+    "ignored": "Diese Version wird ignoriert.",
+    "upToDate": "Keine neuere angepasste Version verfügbar.",
+    "checking": "Prüfung läuft…",
+    "check": "Nach Updates suchen",
+    "downloadApk": "APK herunterladen",
+    "install": "Herunterladen und installieren",
+    "restore": "Erinnerung aktivieren",
+    "ignore": "Diese Version ignorieren",
+    "installing": "Update wird installiert…",
+    "downloading": "Update wird heruntergeladen…",
+    "keepOpen": "Lassen Sie die Anwendung geöffnet. Notizen werden vor der Installation gespeichert."
   },
   "screenshotPin": {
     "title": "Angehefteter Screenshot",

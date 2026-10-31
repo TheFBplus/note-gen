@@ -26,6 +26,9 @@ import { MobileMeProfileCard } from './mobile-me-profile-card'
 import { MobileUpdateSettings } from './mobile-update-settings'
 import { SettingTab } from './setting-tab'
 
+import { IS_CUSTOM_BUILD } from '@/lib/custom-build'
+import { CustomBuildUpdates } from '@/extensions/custom-updates/update-panel'
+
 const MOBILE_HEATMAP_WEEKS = 16
 const MOBILE_ME_SCROLL_KEY = 'mobile-me-scroll-top'
 const MOBILE_ACTIVITY_CACHE_TTL = 30_000
@@ -489,7 +492,7 @@ export function MobileMePage({
         animate="visible"
       >
         <motion.div variants={embeddedItemVariants}>
-          <MobileUpdateSettings />
+          {IS_CUSTOM_BUILD ? <CustomBuildUpdates /> : <MobileUpdateSettings />}
         </motion.div>
 
         <motion.div variants={embeddedItemVariants}>

@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 import struct
 import tempfile
+import tarfile
 import unittest
 from unittest.mock import patch
 
@@ -26,6 +27,11 @@ class PipelineTests(unittest.TestCase):
         target = self.root / 'source/src-tauri/target/aarch64-apple-darwin/release/bundle'
         app = target / 'macos/NoteGen.app'
         app.mkdir(parents=True)
+        executable = app / 'Contents/MacOS/note-gen'
+        executable.parent.mkdir(parents=True)
+        executable.write_bytes(b'fixture-executable')
+        executable.chmod(0o755)
+        (app / 'current-binary').symlink_to('Contents/MacOS/note-gen')
         dmg = target / 'dmg/NoteGen.dmg'
         dmg.parent.mkdir()
         dmg.write_bytes(b'fixture-dmg')
@@ -38,8 +44,12 @@ class PipelineTests(unittest.TestCase):
                 ('lipo', '-archs', str(app / 'Contents/Resources/resources/ocr/notegen-ocr-vision')),
             ])
         packages = list((self.root / 'packages').iterdir())
-        self.assertEqual([f.name for f in packages], ['NoteGen_0.39.1-custom.42_macos-arm64.dmg'])
-        self.assertEqual(packages[0].read_bytes(), b'fixture-dmg')
+        self.assertEqual({f.suffix for f in packages}, {'.dmg', '.gz'})
+        self.assertEqual(next(f for f in packages if f.suffix == '.dmg').read_bytes(), b'fixture-dmg')
+        with tarfile.open(next(f for f in packages if f.suffix == '.gz')) as archive:
+            self.assertIn('NoteGen.app', archive.getnames())
+            self.assertEqual(archive.getmember('NoteGen.app/Contents/MacOS/note-gen').mode, 0o755)
+            self.assertTrue(archive.getmember('NoteGen.app/current-binary').issym())
 
     def test_macos_wrong_architecture_does_not_collect_installer(self):
         app = self.root / 'source/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/NoteGen.app'
@@ -139,7 +149,8 @@ class PipelineTests(unittest.TestCase):
         p.configure(self.args())
         overlay = p.load(source / 'src-tauri/tauri.custom-ci.json')
         self.assertFalse(overlay['bundle']['createUpdaterArtifacts'])
-        self.assertEqual(overlay['plugins']['updater']['endpoints'], [])
+        self.assertEqual(overlay['plugins']['updater']['endpoints'], ['https://raw.githubusercontent.com/TheFBplus/note-gen/refs/heads/codex/custom-update-channel/latest.json'])
+        self.assertEqual(overlay['plugins']['updater']['pubkey'], Path(p.__file__).with_name('updater-public-key.txt').read_text().strip())
         self.assertEqual(overlay['bundle']['android']['versionCode'], 1000000042)
         self.assertEqual((source / 'src-tauri/tauri.conf.json').read_bytes(), original)
         metadata['candidate_sha'] = 'wrong'
@@ -193,7 +204,7 @@ class PipelineTests(unittest.TestCase):
     def packages(self):
         directory = self.root / 'packages'
         directory.mkdir()
-        for suffix in ['windows-x64-setup.exe', 'macos-arm64.dmg', 'android-arm64.apk']:
+        for suffix in ['windows-x64-setup.exe', 'macos-arm64.dmg', 'android-arm64.apk', 'windows-x64-setup.exe.sig', 'macos-arm64.app.tar.gz', 'macos-arm64.app.tar.gz.sig']:
             (directory / ('NoteGen_0.39.1-custom.42_' + suffix)).write_bytes(b'test-package')
         metadata = {'version': '0.39.1-custom.42', 'candidate_sha': 'a' * 40, 'custom_sha': 'b' * 40,
                     'upstream_sha': 'c' * 40, 'tag': 'custom-dev-utest-stest', 'run_url': 'https://example.invalid/run'}
@@ -237,7 +248,7 @@ class PipelineTests(unittest.TestCase):
                 self.assertFalse(any(method == 'PATCH' for method, _, _ in events))
             else:
                 p.publish(self.args())
-                self.assertEqual(len(uploads), 5)
+                self.assertEqual(len(uploads), 8)
                 self.assertEqual(events[-1][2]['draft'], False)
                 self.assertEqual(events[-1][2]['make_latest'], 'false')
                 if draft:

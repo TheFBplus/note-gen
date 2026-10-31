@@ -1,10 +1,23 @@
 {
   "customBuild": {
     "title": "Custom dev build",
-    "description": "This build includes custom extensions. Official package updates are disabled.",
-    "manual": "Download newer custom builds from this fork’s Releases. Install them manually after backing up your data.",
+    "description": "Updates come only from this fork’s signed custom channel.",
+    "manual": "Desktop updates require a restart. Android opens the APK download; confirm installation in the system. Back up important data before upgrading.",
     "download": "Open custom releases",
-    "openFailed": "Could not open the browser. Visit:"
+    "openFailed": "Could not open the browser. Visit:",
+    "current": "Current version: {version}",
+    "available": "New custom version: {version}",
+    "ignored": "This version is ignored.",
+    "upToDate": "No newer custom version is available.",
+    "checking": "Checking…",
+    "check": "Check for updates",
+    "downloadApk": "Download APK",
+    "install": "Download and install",
+    "restore": "Restore reminder",
+    "ignore": "Ignore this version",
+    "installing": "Installing update…",
+    "downloading": "Downloading update…",
+    "keepOpen": "Keep the application open. Your notes will be saved before installation."
   },
   "screenshotPin": {
     "title": "Pinned screenshot",

@@ -155,6 +155,9 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 
 ## 定制版云端构建（2026-10-30 配置）
 
+2026-10-31 定制更新实现：`src/extensions/custom-updates/` 新增协议校验、检查/忽略/安装 store、桌面/手机卡片与全局更新进度阻挡层。定制构建启动查独立渠道；桌面复用现有 native updater 和 NSIS 安装检测，下载后刷盘、安装、重启，Android 打开确定版本 APK 由系统确认安装。普通构建仍走上游策略。CI 额外产出 macOS 更新归档，在独立可信任务中签名/验证 Windows/macOS 更新包；发布成功后独立 `promote-channel` 才更新 `codex/custom-update-channel/latest.json`，失败可重试该任务。签名私钥在仓库外、密码在钥匙串，两个 CUSTOM_UPDATER Secrets 已按用户确认配置；只有公钥提交。详见 `scripts/custom-release/README.md`，下方早期“仅手动下载/不生成 latest.json”描述为历史行为。旧包需一次手动过渡安装；本轮本地验证：19 项控制面、7 项桌面签名/渠道、7 项上游提醒回归及前端原生边界模拟更新测试、类型检查、相关 ESLint、actionlint、定制前端生产构建通过；真实固定私钥签名与 Ed25519 验签/篡改拒绝也通过。未进行真实跨版本自动安装验收，不应据模拟测试声称已通过各平台安装。
+
+
 2026-10-31 macOS 产物修复：首次运行 attempt 2 的原生编译与 DMG 打包成功，但仅指定 dmg 导致 Tauri 清理中间 `.app`，后续架构校验报 `Expected exactly one artifact, found 0`。现改为 `bundle: app,dmg` 保留 app，仍校验主程序及 OCR helper 为 arm64，且只发布 DMG。新增保留配置/收集及错误架构拒绝的回归；本地 19 项控制面测试、7 项提醒测试与 actionlint 通过，云端修复结果需新建手动构建验证，旧任务重试仍用旧配置。
 
 2026-10-31：macOS 构建 runner 切换为 `macos-15`，目标仍为 `aarch64-apple-darwin`。GitHub 将于 2026-11-02 停用 `macos-14`，退役前会缩容/阶段性停机；首次运行的 macOS 任务未取得 runner，Windows 和 Android 构建及 Android 签名已成功。配置变更只对新启动的运行生效，已有运行及其重试仍使用旧配置；不自动取消已有任务。
@@ -167,7 +170,7 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 - 每日 UTC 03:17 或手动检查上游 dev，将其合并到功能分支来源的临时候选；不改写 dev/功能分支。相同来源已有已发布包时跳过，冲突或测试失败中止。
 - 三平台全部成功后才公开定制 Prerelease，附来源及 SHA256。失败维护同一个 Issue，成功恢复后关闭；清理临时分支和已发布包的重复 Artifact。
 - Android 使用固定的 CUSTOM_ANDROID_KEYSTORE_BASE64 / CUSTOM_ANDROID_KEYSTORE_PASSWORD / CUSTOM_ANDROID_KEY_PASSWORD Secrets，别名 Variable 可选；编译任务不接触私钥。已于 2026-10-30 在本机仓库外生成固定 PKCS12/RSA 3072 密钥（别名 notegen-custom，有效期 10000 天），密码存于 macOS 钥匙串 NoteGen Android signing password；三个 Secrets 已配置，不可每次生成临时签名替代。
-- 定制 CI 设置 NEXT_PUBLIC_NOTEGEN_CUSTOM_BUILD=1：独立的 custom-updates 模块和少量更新入口接入会停用官方更新检查，下载入口指向本 fork。普通本地构建不受影响。当前没有定制自动安装服务，不生成 latest.json，也不覆盖电脑安装版。
+- 定制 CI 设置 NEXT_PUBLIC_NOTEGEN_CUSTOM_BUILD=1：独立 custom-updates 模块停用官方渠道，查询本 fork 的定制签名更新清单，桌面按用户点击下载安装、Android 打开 APK 链接；普通本地构建不受影响，详见本节最新实现。
 - 2026-10-30 已推送配置提交 f8788e80，将 GitHub 默认分支设为 codex/html-embed 并开启 Issues；Actions 页面已显示可手动运行的 Custom dev packages。Android 签名 Secrets 已配置，首次云端构建已启动，运行链接见下方。
 - 配置文件与账号设置分开记录；提交、推送、云端启用状态以实际结果为准。首次三平台云端构建和安装仍需查看实际结果。
 - 本轮本地验证已通过 actionlint、17 项云端控制面回归、定制/普通更新渠道回归、类型检查、相关 ESLint 和定制标志下的前端生产构建。三平台云端首轮已启动，最终产物及签名结果须查看 Actions。用户已明确授权并已完成本轮配置的提交推送、默认分支切换和 Issues 启用；命令行无 GitHub 凭据，推送通过已登录的 GitHub Desktop 完成，远端提交及仓库状态已核对。

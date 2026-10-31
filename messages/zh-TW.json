@@ -1,10 +1,23 @@
 {
   "customBuild": {
     "title": "自訂開發版",
-    "description": "此版本包含自訂擴充功能，已關閉官方安裝套件更新。",
-    "manual": "請從本 fork 的 Releases 下載新版，備份資料後手動安裝。",
+    "description": "僅從本 fork 的獨立簽章管道取得自訂更新。",
+    "manual": "桌面更新後需重新啟動；Android 開啟 APK 下載，由系統確認安裝。升級前請備份重要資料。",
     "download": "開啟自訂版下載頁",
-    "openFailed": "無法開啟瀏覽器，請前往："
+    "openFailed": "無法開啟瀏覽器，請前往：",
+    "current": "目前版本：{version}",
+    "available": "新的自訂版本：{version}",
+    "ignored": "已忽略此版本。",
+    "upToDate": "暫無更新的自訂版本。",
+    "checking": "檢查中…",
+    "check": "檢查更新",
+    "downloadApk": "下載 APK",
+    "install": "下載並安裝",
+    "restore": "恢復提醒",
+    "ignore": "忽略此版本",
+    "installing": "正在安裝更新…",
+    "downloading": "正在下載更新…",
+    "keepOpen": "請保持應用程式開啟，安裝前會儲存筆記。"
   },
   "screenshotPin": {
     "title": "貼圖",

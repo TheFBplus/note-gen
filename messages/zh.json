@@ -1,10 +1,23 @@
 {
   "customBuild": {
     "title": "定制开发版",
-    "description": "此构建包含自定义扩展，已关闭官方安装包更新。",
-    "manual": "请从本 fork 的 Releases 下载新定制版，备份数据后手动安装。",
+    "description": "仅从本 fork 的独立签名渠道获取定制更新。",
+    "manual": "桌面更新后需重启；Android 打开 APK 下载，由系统确认安装。升级前请备份重要数据。",
     "download": "打开定制版下载页",
-    "openFailed": "无法打开浏览器，请访问："
+    "openFailed": "无法打开浏览器，请访问：",
+    "current": "当前版本：{version}",
+    "available": "新的定制版本：{version}",
+    "ignored": "已忽略此版本。",
+    "upToDate": "暂无更新的定制版本。",
+    "checking": "检查中…",
+    "check": "检查更新",
+    "downloadApk": "下载 APK",
+    "install": "下载并安装",
+    "restore": "恢复提醒",
+    "ignore": "忽略此版本",
+    "installing": "正在安装更新…",
+    "downloading": "正在下载更新…",
+    "keepOpen": "请保持应用打开，安装前会保存笔记。"
   },
   "screenshotPin": {
     "title": "贴图",

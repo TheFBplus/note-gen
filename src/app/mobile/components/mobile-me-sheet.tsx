@@ -32,6 +32,8 @@ const MOBILE_ME_RESTORE_OPEN_KEY = "mobile-me-restore-open"
 const MOBILE_ME_RESTORE_INSTANT_KEY = "mobile-me-restore-open-instant"
 const SYNC_INDICATOR_HIDE_DELAY = 500
 
+import { IS_CUSTOM_BUILD } from "@/lib/custom-build"
+
 export function MobileMeSheet() {
   const reduceMotion = useReducedMotion()
   const tNavigation = useTranslations("navigation")
@@ -47,7 +49,8 @@ export function MobileMeSheet() {
   const autoConversationSyncEnabled = useSettingStore(state => state.autoConversationSyncEnabled)
   const mobileUpdate = useUpdateStore(state => state.mobileUpdate)
   const [currentPlatform] = useState(() => getMobilePlatform())
-  const hasMobileUpdate = Boolean(mobileUpdate && currentPlatform)
+  const hasCustomUpdate = useUpdateStore(state => state.hasUpdate)
+  const hasMobileUpdate = Boolean((mobileUpdate || IS_CUSTOM_BUILD && hasCustomUpdate) && currentPlatform)
   const swipeSurfaceRef = useRef<HTMLDivElement>(null)
   const surfaceX = useMotionValue(0)
   const avatarUrl = useSyncStore(state =>

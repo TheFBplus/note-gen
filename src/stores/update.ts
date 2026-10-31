@@ -5,6 +5,7 @@ import { check, Update } from '@tauri-apps/plugin-updater'
 import { fetch as httpFetch } from '@tauri-apps/plugin-http'
 import { compareVersions, extractVersionText } from '@/lib/version'
 import { IS_CUSTOM_BUILD, CUSTOM_RELEASES_URL } from '@/lib/custom-build'
+import { useCustomUpdates } from '@/extensions/custom-updates/store'
 
 export const MOBILE_UPDATE_MANIFEST_URL = 'https://download.notegen.top/updates/latest.json'
 export const ANDROID_DOWNLOAD_URL = IS_CUSTOM_BUILD ? CUSTOM_RELEASES_URL : 'https://notegen.top/download'
@@ -64,7 +65,8 @@ const useUpdateStore = create<UpdateState>((set, get) => ({
   mobileUpdateError: '',
   checkForMobileUpdates: async (currentVersion) => {
     if (IS_CUSTOM_BUILD) {
-      set({ hasUpdate: false, mobileUpdate: null, mobileUpdateStatus: 'ready', mobileUpdateError: '' })
+      await useCustomUpdates.getState().check()
+      set({ hasUpdate: useCustomUpdates.getState().hasUpdate, mobileUpdate: null, mobileUpdateStatus: 'ready', mobileUpdateError: '' })
       return null
     }
     set({ mobileUpdateStatus: 'checking', mobileUpdateError: '' })
@@ -137,7 +139,9 @@ const useUpdateStore = create<UpdateState>((set, get) => ({
   
   checkForUpdates: async (options) => {
     if (IS_CUSTOM_BUILD) {
-      set({ update: null, hasUpdate: false, latestVersion: '' })
+      await useCustomUpdates.getState().check()
+      const custom = useCustomUpdates.getState()
+      set({ update: null, hasUpdate: custom.hasUpdate, latestVersion: custom.manifest?.version || '' })
       return
     }
     try {

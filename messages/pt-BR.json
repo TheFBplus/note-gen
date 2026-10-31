@@ -1,10 +1,23 @@
 {
   "customBuild": {
     "title": "Versão de desenvolvimento personalizada",
-    "description": "Esta versão inclui extensões próprias. As atualizações de pacotes oficiais estão desativadas.",
-    "manual": "Baixe novas versões em Releases deste fork. Faça backup dos dados e instale manualmente.",
+    "description": "As atualizações vêm apenas do canal assinado deste fork.",
+    "manual": "O desktop reinicia após atualizar. No Android, baixe o APK e confirme a instalação no sistema. Faça backup dos dados importantes antes.",
     "download": "Abrir versões personalizadas",
-    "openFailed": "Não foi possível abrir o navegador:"
+    "openFailed": "Não foi possível abrir o navegador:",
+    "current": "Versão atual: {version}",
+    "available": "Nova versão personalizada: {version}",
+    "ignored": "Esta versão foi ignorada.",
+    "upToDate": "Nenhuma versão personalizada mais recente disponível.",
+    "checking": "Verificando…",
+    "check": "Verificar atualizações",
+    "downloadApk": "Baixar APK",
+    "install": "Baixar e instalar",
+    "restore": "Restaurar aviso",
+    "ignore": "Ignorar esta versão",
+    "installing": "Instalando atualização…",
+    "downloading": "Baixando atualização…",
+    "keepOpen": "Mantenha o aplicativo aberto. As notas serão salvas antes da instalação."
   },
   "screenshotPin": {
     "title": "Captura fixada",

@@ -18,7 +18,7 @@
 2. 仓库 Settings → General → Default branch：设为 **`codex/html-embed`**。这使该分支上的工作流具备手动/定时入口；`dev` 仍保持同步上游的用途。不要为启用定时任务把功能文件覆盖到 `dev`。
 3. Settings → General → Features：启用 **Issues**。fork 默认可能未启用，失败报告需要它。
 4. Actions 页面：如果提示 fork 的工作流被禁用，启用工作流。确认仓库策略允许配置中固定 SHA 的 GitHub 官方及 Android/pnpm Actions。工作流会按任务申请最小必要权限，组织策略也必须允许这些写操作。
-5. 按下节生成 Android 密钥并配置三个 Secrets。未配置时会在预检查明确失败，不启动耗时的三平台构建，不生成临时签名顶替固定密钥。
+5. 配置下述 Android 三个 Secrets 和桌面更新签名两个 Secrets。未配置时会在预检查明确失败，不启动耗时的三平台构建，不生成临时签名顶替固定密钥。
 6. Actions → **Custom dev packages** → **Run workflow**，选择 `codex/html-embed`。首次不勾选 force。
 7. 在账号通知设置中启用 Actions 失败通知，并关注仓库中的失败 Issue。
 
@@ -62,7 +62,7 @@ Android 编译任务不接触私钥；单独签名任务只执行受控的自动
 
 ## 手动构建行为
 
-macOS 使用 `macos-15`，显式指定 `--bundles app,dmg` 保留 `.app` 供主程序与 OCR helper 的 ARM64 架构校验；仅指定 dmg 时 Tauri 会在成功生成磁盘映像后清理中间 `.app`。最终只收集、上传和发布 DMG，不额外发布 `.app`。
+macOS 使用 `macos-15`，显式指定 `--bundles app,dmg` 保留 `.app` 供主程序与 OCR helper 的 ARM64 架构校验；仅指定 dmg 时 Tauri 会在成功生成磁盘映像后清理中间 `.app`。手动安装使用 DMG；另将 `.app` 打包为保留符号链接/权限的 `.app.tar.gz`，供应用内更新使用，不直接发布裸 `.app`。
 
 - 仅通过 Actions → Custom dev packages → Run workflow 手动启动，不设定时，不监听 push、PR 或上游发布事件；失败后也不会自动定时重试。
 - 每次手动运行时主动 fetch 上游 `dev`，与最新 `codex/html-embed` 合并。
@@ -70,7 +70,7 @@ macOS 使用 `macos-15`，显式指定 `--bundles app,dmg` 保留 `.app` 供主�
 - 从功能分支创建候选合并，只把候选提交推到本次专用的 `codex/ci-build-*` 临时分支。不改写 `dev` 或 `codex/html-embed`。
 - 合并冲突记录文件名并退出；无冲突后还要执行类型检查、HTML Embed 的普通/DOM/React 回归及原有代码块回归。无文本冲突不代表必然兼容。
 - 检查通过后并行编译三平台。包版本使用上游三段版本加 `-custom.<run_number>`；Android versionCode 为 `1000000000 + run_number`，Mac bundleVersion 为 run_number。请保留该工作流的运行序列，换工作流/仓库时先规划 versionCode 连续性。
-- 所有平台成功后，先创建草稿 Release，上传三份安装包、`build-info.json`、`SHA256SUMS.txt`，验证齐全后才公开为 Prerelease。部分失败不会发布半套包，也不覆盖已发布版本。
+- 所有平台成功后，先创建草稿 Release，上传三份安装包、macOS 更新归档、两份桌面签名、`build-info.json`、`SHA256SUMS.txt`，验证齐全后才公开为 Prerelease。部分失败不会发布半套包，也不覆盖已发布版本。
 - Release 标签包含上游及自定义提交摘要。force 会生成新的运行标签，不覆盖已有版本。记录的来源提交对应候选代码；打包版本/更新端点覆盖配置是明确记录的构建阶段生成物。
 - 发布成功后清理本轮重复的包 Artifact，并删除临时分支；来源仍可通过 Release 标签追溯。失败元数据保留 7 天，包产物最多 3 天，未签名 Android 中间包最多 1 天。
 
@@ -90,11 +90,28 @@ macOS 使用 `macos-15`，显式指定 `--bundles app,dmg` 保留 `.app` 供主�
 
 改变工作流配置不会影响已启动的构建或其重试；新触发的运行使用新配置。已有运行不会自动取消。
 
-## 更新与安装边界
+## 定制版应用内更新
 
-生成的定制包设置 `NEXT_PUBLIC_NOTEGEN_CUSTOM_BUILD=1`，关闭官方桌面和手机更新检查。关于页显示定制版 Releases 入口，手机的手动下载入口也指向本 fork。普通本地开发构建没有这个标志时保持上游行为。
+定制 CI 覆盖配置内置本 fork 的更新公钥与固定端点，不使用上游更新公钥/地址；普通本地构建仍保留原版行为。`createUpdaterArtifacts` 保持关闭，可信控制面自行打包 macOS `.app.tar.gz`，在独立 Ubuntu 签名任务对 Windows NSIS 和 macOS 更新归档执行固定版本 Tauri CLI 签名，并通过 minisign 验证。编译任务不接触桌面/Android 私钥。Tauri `.sig` 是 Base64 包装的 minisign 文本，验证时需先解码；客户端清单使用原 `.sig` 内容。
 
-第一阶段手动下载和安装；不会下载官方安装包覆盖定制功能，也不会远程替换你电脑上正在运行的应用。macOS 包没有发行证书和公证，Windows 包也没有发行者签名。将来接入自动安装需要单独的定制更新清单、Tauri 更新签名和平台安装验收，本流程不生成官方 `latest.json`。
+新增 Repository Secrets：
+
+| 名称 | 内容 |
+| --- | --- |
+| `CUSTOM_UPDATER_PRIVATE_KEY` | 固定 Tauri 更新私钥文件的完整文本，不是 Android keystore |
+| `CUSTOM_UPDATER_KEY_PASSWORD` | 该更新私钥的密码 |
+
+公钥位于 `scripts/custom-release/updater-public-key.txt`，可以公开提交。私钥已在本机仓库外 `~/.config/notegen-signing/notegen-updater.key` 生成，密码存 macOS 钥匙串 **NoteGen updater signing password**（service `com.thefbplus.notegen.updater`、account `notegen-custom-updater`），两个 Secrets 已按用户确认配置。请备份固定私钥和密码；替换公钥需要安排旧版迁移，不可每次构建重新生成。
+
+发布顺序：三平台与签名全部成功 → 草稿上传并校验所有文件 → 公开定制 Prerelease → 独立 `promote-channel` 任务将完整清单写入 `codex/custom-update-channel` 分支的 `latest.json`。更新渠道分支不是源码构建来源，不改变功能分支；文件通过 raw.githubusercontent.com 固定 HTTPS 地址读取，不依赖 `/releases/latest`。
+
+- 渠道一次写入 Windows、macOS、Android 全部信息，下载 URL 固定到本次 Release。不完整/草稿 Release 不推进渠道；版本和 Android versionCode 必须递增，默认禁止降级。
+- 渠道写入失败时包可能已发布，应用仍看旧渠道；Actions 报错并保留包 Artifact。使用 **Re-run failed jobs** 重试独立的 `promote-channel`，不重新发布包。成功后才清理重复 Artifact 和关闭故障 Issue。
+- 应用启动和设置页可检查更新；无渠道（404）视为暂无更新，网络/清单错误显示错误。检查失败不访问官方渠道。可以忽略版本和恢复提醒，设置独立保存。
+- 桌面下载后验证更新签名，刷盘保存当前笔记及待保存队列，再安装并重启。下载/安装期间主窗口显示阻止编辑的进度对话框；有独立编辑窗口时要求先关闭。Windows 只支持当前定制 NSIS x64 安装，不回退到 MSI。macOS 更新文件为 `.app.tar.gz`，不是 DMG。
+- Android 的“我的”页始终显示定制更新卡片，发现新版本后打开该版本的具体 APK 链接，由系统确认安装，不静默安装、不新增安装权限。必须复用既有固定 Android 签名。
+- 尚未接入 iOS/Linux 或其他架构；未做 Apple 公证/Windows 发行者签名，Tauri 更新签名不能替代这两种系统信任。macOS 安装位置权限、更新后启动，以及 Windows/Android 覆盖更新需实机验收。
+- 已安装的旧版（例如 `0.39.1-custom.2`）没有此功能，需先手动安装一次本实现生成的新包。之后再用一个更高版本验证完整的应用内升级链路。手动构建仍是唯一打包入口，上游 Release 提醒不会自动构建或安装。
 
 ## 失败与恢复
 
@@ -111,6 +128,7 @@ macOS 使用 `macos-15`，显式指定 `--bundles app,dmg` 保留 `.app` 供主�
 
 ```bash
 python3 scripts/custom-release/test_pipeline.py
+python3 scripts/custom-release/test_desktop_updates.py
 python3 scripts/custom-release/test_watch_upstream.py
 node scripts/custom-release/test-update-channel.mjs
 COREPACK_ENABLE_AUTO_PIN=0 pnpm exec tsc --noEmit --incremental false
