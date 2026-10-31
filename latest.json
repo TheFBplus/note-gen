@@ -1,0 +1,21 @@
+{
+  "version": "0.39.1-custom.4",
+  "pub_date": "2026-10-31T10:08:09Z",
+  "notes": "NoteGen Custom 0.39.1-custom.4\nUpstream: 20c50087badbe7061f55f9d0ed3f5017ebe33f08\nCustom: 917fe9977a432337347f08065e763dad8165af60",
+  "platforms": {
+    "windows-x86_64-nsis": {
+      "url": "https://github.com/TheFBplus/note-gen/releases/download/custom-dev-u20c50087badb-s917fe9977a43/NoteGen_0.39.1-custom.4_windows-x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRU1qMmlJOVZDTGFERGVCb0pmSUkrRnpSNlI2VzVxTVhZNjROU3ZVcGRvcWJITyt1NEdpVkk4cnpkYkFBSFQvUHNVQnVYVnlUaXlDSzliTFdiVXl2N3g3ZVRWMUZSMmdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNDQxMjY3CWZpbGU6Tm90ZUdlbl8wLjM5LjEtY3VzdG9tLjRfd2luZG93cy14NjQtc2V0dXAuZXhlCmczTk5vRUh5alY4bmI4SVNZUGZzRGdTazd1b1lXMVJudmgxWW4rTXNKb25wdnkwWmF6cHFaSENlL3NPZ2k4R0RGY2I2VzMwNUdCcDl3cmwwSTRJTEFBPT0K"
+    },
+    "darwin-aarch64": {
+      "url": "https://github.com/TheFBplus/note-gen/releases/download/custom-dev-u20c50087badb-s917fe9977a43/NoteGen_0.39.1-custom.4_macos-arm64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRU1qMmlJOVZDTGVRNG82dWhMaW5uUUxReGRZODcyQ2ZFS2owNGpVL0RDTVJwemJRNGpTclVhUkswMUJ1N0Q5RE9zMjhZUmFsbjBQeHI1ZHZJQnlGdWJrMU5raVNXaHdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNDQxMjY3CWZpbGU6Tm90ZUdlbl8wLjM5LjEtY3VzdG9tLjRfbWFjb3MtYXJtNjQuYXBwLnRhci5negpHbHJFbnM1TGFzNXlYY2pXbTVSem1INHdDa1JxS3llc0R2c3c0RzhTNGY5TU9Yd05DRW9jdXAyZmF2VlpwTVlJNWo2T3RGYWpXcVJwQmI0cmQ4bjZEdz09Cg=="
+    }
+  },
+  "android": {
+    "url": "https://github.com/TheFBplus/note-gen/releases/download/custom-dev-u20c50087badb-s917fe9977a43/NoteGen_0.39.1-custom.4_android-arm64.apk",
+    "version_code": 1000000004,
+    "sha256": "bbef97066d730f6e3c2f646dda0fa885adb32044a9ec368017ba37335d485556"
+  },
+  "release_url": "https://github.com/TheFBplus/note-gen/releases/tag/custom-dev-u20c50087badb-s917fe9977a43"
+}
