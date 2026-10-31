@@ -32,7 +32,7 @@ def sign(args):
         # Tauri .sig 是完整 minisign 文本的 Base64 包装，minisign 需解码后验证。
         with tempfile.TemporaryDirectory() as temporary:
             signature = Path(temporary) / 'update.minisig'
-            signature.write_bytes(base64.b64decode(Path(str(file) + '.sig').read_text(), validate=True))
+            signature.write_bytes(base64.b64decode(Path(str(file) + '.sig').read_text().strip(), validate=True))
             run('minisign', '-Vm', str(file), '-x', str(signature), '-P', key)
 
 
