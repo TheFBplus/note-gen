@@ -2,12 +2,16 @@ import * as Y from 'yjs'
 import { getDb } from '@/db'
 import type { CanvasDocument } from '@/types/canvas'
 import { enqueueCanvasSnapshot } from './outbox'
-import { openCollaborativeObject } from './collaboration'
+import { captureSelfHostedCollaboration, openCollaborativeObject } from './collaboration'
+import { addCanvasRecordObjectIds, localizeCanvasRecords } from './references'
+import { getSelfHostedSyncRuntime } from './runtime'
 
 const LOCAL_ORIGIN = Symbol('notegen-canvas-local')
 const REMOTE_ORIGIN = Symbol('notegen-canvas-remote')
 
 interface CanvasSession {
+  closed: boolean
+  closing: boolean
   document: Y.Doc
   nodes: Y.Map<string>
   edges: Y.Map<string>
@@ -21,7 +25,6 @@ interface CanvasSession {
   fallbackTimer: ReturnType<typeof setInterval> | null
   consumeQueue: Promise<void>
   appendQueue: Promise<void>
-  appendError: unknown
 }
 
 const sessions = new Map<string, Promise<CanvasSession | null>>()
@@ -58,34 +61,61 @@ export async function syncCanvasDocument(
   options: { flush?: boolean } = {},
 ) {
   const session = await getCanvasSession(canvasId, value)
-  if (!session) return
-  session.document.transact(() => {
-    reconcileMap(session.nodes, value.nodes.map(node => [node.id, JSON.stringify(node)]), session.knownNodeIds)
-    reconcileMap(session.edges, value.edges.map(edge => [edge.id, JSON.stringify(edge)]), session.knownEdgeIds)
-    session.metadata.set('schemaVersion', String(value.schemaVersion))
-    session.metadata.set('viewport', JSON.stringify(value.viewport))
-    session.metadata.set('settings', JSON.stringify(value.settings))
-  }, LOCAL_ORIGIN)
-  session.knownNodeIds = new Set(value.nodes.map(node => node.id))
-  session.knownEdgeIds = new Set(value.edges.map(edge => edge.id))
-  await session.appendQueue
-  if (session.appendError) throw session.appendError
+  if (!session || session.closed || session.closing || !session.transport.isActive()) return
+  await syncCanvasIntoSession(session, value)
+  await persistCanvasUpdates(session)
   if (options.flush !== false) await session.transport.flush()
 }
 
-export async function closeCanvasCollaboration(canvasId: string) {
-  const session = await sessions.get(canvasId)
+export async function openCanvasCollaboration(canvasId: string, initial: CanvasDocument) {
+  await getCanvasSession(canvasId, initial)
+}
+
+export async function closeCanvasCollaboration(canvasId: string, options: { flush?: boolean } = {}) {
+  const pending = sessions.get(canvasId)
   sessions.delete(canvasId)
+  localActivity.delete(canvasId)
+  if (options.flush === false) {
+    // A session still opening may itself be waiting for the current runtime
+    // run. Cancel it without making inbox deletion await that same run.
+    void pending?.then(session => { if (session) disposeCanvasSession(session) })
+      .catch(error => console.warn('[self-hosted-sync] Unable to close deleted canvas session', error))
+    return
+  }
+  const session = await pending
   if (!session) return
-  await session.appendQueue
-  if (session.appendError) throw session.appendError
-  await session.transport.flush()
+  session.closing = true
+  try {
+    await persistCanvasUpdates(session)
+    await session.transport.flush()
+  } finally { disposeCanvasSession(session) }
+}
+
+function disposeCanvasSession(session: CanvasSession) {
+  if (session.closed) return
+  session.closed = true
   session.transport.close()
   session.unsubscribePresence()
   if (session.remoteApplyTimer) clearTimeout(session.remoteApplyTimer)
   if (session.fallbackTimer) clearInterval(session.fallbackTimer)
   session.document.destroy()
-  localActivity.delete(canvasId)
+}
+
+/** Close old sessions before replacing snapshots. Persist only already admitted
+ * deltas; never serialize a stale Y.Doc or wake the sender during this drain. */
+export async function closeAllCanvasCollaboration() {
+  const pending = [...sessions.values()]
+  sessions.clear()
+  localActivity.clear()
+  const results = await Promise.allSettled(pending)
+  const closing: Promise<void>[] = []
+  for (const result of results) {
+    if (result.status !== 'fulfilled' || !result.value) continue
+    const session = result.value
+    disposeCanvasSession(session)
+    closing.push(session.transport.persistLocalUpdates(), session.consumeQueue)
+  }
+  await Promise.all(closing)
 }
 
 export async function updateCanvasDragPresence(
@@ -106,16 +136,31 @@ export async function clearCanvasDragPresence(canvasId: string) {
 }
 
 async function getCanvasSession(canvasId: string, initial: CanvasDocument) {
+  if (!captureSelfHostedCollaboration()()) return null
   const existing = sessions.get(canvasId)
-  if (existing) return existing
-  const created = createCanvasSession(canvasId, initial)
+  if (existing) {
+    const session = await existing
+    if (session && !session.closed && !session.closing && session.transport.isActive()) return session
+    if (session) disposeCanvasSession(session)
+    sessions.delete(canvasId)
+  }
+  const created: Promise<CanvasSession | null> = createCanvasSession(canvasId, initial).then(session => {
+    if (sessions.get(canvasId) !== created) {
+      if (session) disposeCanvasSession(session)
+      return null
+    }
+    return session
+  })
   sessions.set(canvasId, created)
+  void created.catch(() => { if (sessions.get(canvasId) === created) sessions.delete(canvasId) })
   return created
 }
 
 async function createCanvasSession(canvasId: string, initial: CanvasDocument): Promise<CanvasSession | null> {
-  const workspaceId = await enqueueCanvasSnapshot(canvasId)
-  if (!workspaceId) return null
+  const isActive = captureSelfHostedCollaboration()
+  if (!isActive()) return null
+  const workspaceId = await enqueueCanvasSnapshot(canvasId, 'upsert', { onlyIfMissing: true })
+  if (!workspaceId || !isActive()) return null
   const database = await getDb()
   const mappings = await database.select<Array<{ objectId: string }>>(
     `select object_id as objectId from self_hosted_object_mappings
@@ -123,6 +168,7 @@ async function createCanvasSession(canvasId: string, initial: CanvasDocument): P
     [workspaceId, `canvas:${canvasId}`]
   )
   const objectId = mappings[0]?.objectId ?? crypto.randomUUID()
+  if (!isActive()) return null
   if (!mappings[0]) {
     await database.execute(
       `insert into self_hosted_object_mappings(
@@ -131,9 +177,27 @@ async function createCanvasSession(canvasId: string, initial: CanvasDocument): P
       [workspaceId, objectId, `canvas:${canvasId}`, Date.now()]
     )
   }
+  if (!isActive()) return null
+  const accepted = await database.select<Array<{ found: number }>>(
+    'select 1 as found from self_hosted_revisions where workspace_id=$1 and object_id=$2 limit 1',
+    [workspaceId, objectId],
+  )
+  if (!accepted.length) {
+    // A document update cannot precede creation of its owning object.
+    await getSelfHostedSyncRuntime().wake('canvas-object-activation')
+    if (!isActive()) return null
+    const activated = await database.select<Array<{ found: number }>>(
+      'select 1 as found from self_hosted_revisions where workspace_id=$1 and object_id=$2 limit 1',
+      [workspaceId, objectId],
+    )
+    if (!activated.length) throw new Error('Canvas object activation is pending')
+  }
   const transport = await openCollaborativeObject(workspaceId, objectId, objectId, 'canvas')
+  if (!isActive()) { transport.close(); return null }
   const document = new Y.Doc()
   const session: CanvasSession = {
+    closed: false,
+    closing: false,
     document,
     nodes: document.getMap('nodes'),
     edges: document.getMap('edges'),
@@ -147,20 +211,33 @@ async function createCanvasSession(canvasId: string, initial: CanvasDocument): P
     fallbackTimer: null,
     consumeQueue: Promise.resolve(),
     appendQueue: Promise.resolve(),
-    appendError: null,
   }
   document.on('update', (update: Uint8Array, origin: unknown) => {
-    if (origin === REMOTE_ORIGIN) return
-    session.appendQueue = session.appendQueue
-      .then(() => transport.appendUpdate(update))
+    if (origin === REMOTE_ORIGIN || session.closed || session.closing || !transport.isActive()) return
+    session.appendQueue = transport.appendUpdate(update)
       .catch(error => {
-        session.appendError = error
         console.warn('[self-hosted-sync] canvas.local-update-failed', { canvasId, error })
       })
   })
-  await transport.consume(update => Y.applyUpdate(document, update, REMOTE_ORIGIN))
-  if (session.nodes.size === 0 && session.edges.size === 0) {
-    await syncCanvasIntoSession(session, initial)
+  let receivedRemoteState = false
+  try {
+    await transport.consume(update => {
+      receivedRemoteState = true
+      Y.applyUpdate(document, update, REMOTE_ORIGIN)
+    })
+  } catch (error) {
+    disposeCanvasSession(session)
+    if (!isActive()) return null
+    throw error
+  }
+  if (!isActive()) { disposeCanvasSession(session); return null }
+  if (!receivedRemoteState) {
+    try {
+      await syncCanvasIntoSession(session, initial)
+    } catch (error) {
+      disposeCanvasSession(session)
+      throw error
+    }
   }
   const applyRemote = () => queueRemoteUpdates(canvasId, session, initial)
   session.unsubscribePresence = transport.subscribePresence(message => {
@@ -173,8 +250,11 @@ async function createCanvasSession(canvasId: string, initial: CanvasDocument): P
 }
 
 async function syncCanvasIntoSession(session: CanvasSession, value: CanvasDocument) {
+  if (session.closed || session.closing || !session.transport.isActive()) return
+  const portable = JSON.parse(await addCanvasRecordObjectIds(session.transport.workspaceId, JSON.stringify(value))) as CanvasDocument
+  if (session.closed || session.closing || !session.transport.isActive()) return
   session.document.transact(() => {
-    reconcileMap(session.nodes, value.nodes.map(node => [node.id, JSON.stringify(node)]), session.knownNodeIds)
+    reconcileMap(session.nodes, portable.nodes.map(node => [node.id, JSON.stringify(node)]), session.knownNodeIds)
     reconcileMap(session.edges, value.edges.map(edge => [edge.id, JSON.stringify(edge)]), session.knownEdgeIds)
     session.metadata.set('schemaVersion', String(value.schemaVersion))
     session.metadata.set('viewport', JSON.stringify(value.viewport))
@@ -185,8 +265,10 @@ async function syncCanvasIntoSession(session: CanvasSession, value: CanvasDocume
 }
 
 function queueRemoteUpdates(canvasId: string, session: CanvasSession, fallback: CanvasDocument) {
+  if (session.closed || !session.transport.isActive()) return
   session.consumeQueue = session.consumeQueue.then(async () => {
     await session.transport.consume(update => Y.applyUpdate(session.document, update, REMOTE_ORIGIN))
+    if (session.closed || !session.transport.isActive()) return
     session.pendingRemoteMaterialization = true
     scheduleRemoteMaterialization(canvasId, session, fallback)
   }).catch(error => {
@@ -199,6 +281,7 @@ function scheduleRemoteMaterialization(
   session: CanvasSession,
   fallback?: CanvasDocument,
 ) {
+  if (session.closed || !session.transport.isActive()) return
   if (session.remoteApplyTimer) clearTimeout(session.remoteApplyTimer)
   const activity = getLocalActivity(canvasId)
   const delay = activity.interactions.size > 0
@@ -206,13 +289,18 @@ function scheduleRemoteMaterialization(
     : Math.max(0, activity.quietUntil - Date.now())
   session.remoteApplyTimer = setTimeout(() => {
     session.remoteApplyTimer = null
+    if (session.closed || !session.transport.isActive()) return
     const latestActivity = getLocalActivity(canvasId)
     if (latestActivity.interactions.size > 0 || latestActivity.quietUntil > Date.now()) {
       scheduleRemoteMaterialization(canvasId, session, fallback)
       return
     }
     if (!session.pendingRemoteMaterialization) return
-    void materializeRemoteCanvas(canvasId, session, fallback)
+    void materializeRemoteCanvas(canvasId, session, fallback).catch(error => {
+      // Leave the previous local canvas intact when a record cannot be
+      // identified unambiguously; a later inbox application can retry it.
+      console.warn('[self-hosted-sync] canvas.remote-reference-failed', { canvasId, error })
+    })
   }, Math.max(delay, 25))
 }
 
@@ -222,6 +310,7 @@ async function materializeRemoteCanvas(
   fallback?: CanvasDocument,
 ) {
   const { default: useCanvasStore } = await import('@/stores/canvas')
+  if (session.closed || !session.transport.isActive()) return
   const current = useCanvasStore.getState().documents[canvasId]
   const activity = getLocalActivity(canvasId)
   if (activity.interactions.size > 0 || activity.quietUntil > Date.now()) {
@@ -230,12 +319,20 @@ async function materializeRemoteCanvas(
   }
   const base = fallback ?? current
   if (!base) return
-  const next = materializeCanvas(session, base)
+  const next = JSON.parse(await localizeCanvasRecords(session.transport.workspaceId,
+    JSON.stringify(materializeCanvas(session, base)))) as CanvasDocument
+  if (session.closed || !session.transport.isActive()) return
+  const latestActivity = getLocalActivity(canvasId)
+  if (latestActivity.interactions.size > 0 || latestActivity.quietUntil > Date.now()
+    || useCanvasStore.getState().documents[canvasId] !== current) {
+    scheduleRemoteMaterialization(canvasId, session, fallback)
+    return
+  }
   session.pendingRemoteMaterialization = false
   session.knownNodeIds = new Set(next.nodes.map(node => node.id))
   session.knownEdgeIds = new Set(next.edges.map(edge => edge.id))
   if (JSON.stringify(current) !== JSON.stringify(next)) {
-    useCanvasStore.getState().updateDocument(canvasId, next)
+    await useCanvasStore.getState().applyRemoteDocument(canvasId, next)
   }
 }
 
@@ -261,4 +358,13 @@ function getLocalActivity(canvasId: string) {
   const created = { interactions: new Set<string>(), quietUntil: 0 }
   localActivity.set(canvasId, created)
   return created
+}
+
+async function persistCanvasUpdates(session: CanvasSession) {
+  let pending: Promise<void>
+  do {
+    pending = session.appendQueue
+    await pending
+  } while (pending !== session.appendQueue)
+  await session.transport.persistLocalUpdates()
 }

@@ -1,10 +1,12 @@
 import { Store } from '@tauri-apps/plugin-store'
 import { invoke } from '@tauri-apps/api/core'
-import { getDb } from '@/db'
+import { listen } from '@tauri-apps/api/event'
+import { getDb, initAllDatabases } from '@/db'
 import useSyncStore from '@/stores/sync'
 import { getSelfHostedSyncRuntime } from './runtime'
 import emitter from '@/lib/emitter'
 import type { SyncPlatform } from '@/types/sync'
+import type { SwitchOperationProgress } from '@/lib/sync/platform-switch-plan'
 
 let listenersInstalled = false
 let activeLibraryWorkspaceId: string | null = null
@@ -21,12 +23,36 @@ function installRuntimeListeners(runtime: ReturnType<typeof getSelfHostedSyncRun
     }
   })
   window.addEventListener('online', () => void runtime.wake('network'))
+  let resumeTimer: ReturnType<typeof setTimeout> | null = null
+  const resume = () => {
+    if (resumeTimer) clearTimeout(resumeTimer)
+    resumeTimer = setTimeout(() => {
+      resumeTimer = null
+      void runtime.wake('foreground')
+    }, 150)
+  }
+  window.addEventListener('focus', resume)
+  window.addEventListener('pageshow', resume)
+  void listen('self-hosted-app-resumed', resume).catch(error => {
+    console.warn('[self-hosted-sync] Unable to listen for native resume', error)
+  })
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') void runtime.wake('foreground')
+    if (document.visibilityState === 'visible') resume()
   })
 }
 
-export async function refreshSelfHostedSyncRuntime(target?: SyncPlatform) {
+export async function refreshSelfHostedSyncRuntime(
+  target?: SyncPlatform,
+  onProgress?: (progress: SwitchOperationProgress) => void,
+  reason: 'startup' | 'manual-retry' = 'startup',
+) {
+  // Complete path recovery before exact local-root lookups can create or bind
+  // another cloud workspace for a stale iOS container path.
+  await initAllDatabases()
+  const report = (startupTask: NonNullable<SwitchOperationProgress['startupTask']>) => {
+    onProgress?.({ phase: 'start', kind: 'item', startupTask, current: 0, total: 0 })
+  }
+  if (target === 'selfHosted') report('workspace')
   useSyncStore.getState().setSelfHostedRuntimeReady(false)
   const store = await Store.load('store.json')
   // An explicit target is allowed only for the controlled switch attempt. On
@@ -37,6 +63,13 @@ export async function refreshSelfHostedSyncRuntime(target?: SyncPlatform) {
   const profiles = await (await getDb()).select<Array<{ id: string }>>(
     "select id from self_hosted_sync_profiles where state = 'connected' limit 1"
   )
+  const pendingConnectionReview = await store.get<string>('selfHostedConnectionReviewProfileId')
+  if (pendingConnectionReview && target !== 'selfHosted') {
+    activeLibraryWorkspaceId = null
+    runtime.stop()
+    useSyncStore.getState().setSelfHostedConnected(profiles.length > 0)
+    return
+  }
   if (!selected || profiles.length === 0) {
     activeLibraryWorkspaceId = null
     console.info('[self-hosted-sync] runtime.stopped', {
@@ -66,8 +99,10 @@ export async function refreshSelfHostedSyncRuntime(target?: SyncPlatform) {
   }
   activeLibraryWorkspaceId = libraryWorkspaceId
   installRuntimeListeners(runtime)
+  report('recover')
   await invoke<number>('self_hosted_recover_file_journal')
-  runtime.start()
+  report('connect')
+  runtime.start(reason)
   useSyncStore.getState().setSelfHostedConnected(true)
   if (!await runtime.bindingIsReady(libraryWorkspaceId)) {
     console.warn('[self-hosted-sync] runtime.not-ready', {

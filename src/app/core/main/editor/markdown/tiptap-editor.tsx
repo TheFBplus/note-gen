@@ -28,6 +28,7 @@ import { Extension, nodeInputRule, type Editor as CoreEditor, type JSONContent, 
 import { Fragment, Slice, type Node as ProseMirrorNode, type NodeType } from '@tiptap/pm/model'
 import { AllSelection, EditorState, Plugin, PluginKey, Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
 import { closeHistory, redoDepth, undoDepth } from '@tiptap/pm/history'
+import { StepMap } from '@tiptap/pm/transform'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import 'katex/dist/katex.min.css'
 import { InlineMath, BlockMath } from './math-extension'
@@ -156,6 +157,7 @@ import {
 } from '@/lib/self-hosted-sync/markdown-collaboration'
 import './style.css'
 import { MainStatusBarPortal } from '../../main-status-bar'
+import { SelfHostedNoteConflicts } from './sync/self-hosted-note-conflicts'
 import { PluginEditorContextMenu } from '@/components/plugins/plugin-editor-context-menu'
 
 const MathEditorDialog = dynamic(
@@ -2445,21 +2447,6 @@ function resetEditorHistory(editor: CoreEditor): void {
   editor.view.updateState(nextState)
 }
 
-function setEditorContentWithoutUndo(editor: CoreEditor, content: string | JSONContent): void {
-  editor
-    .chain()
-    .command(({ tr }) => {
-      closeHistory(tr)
-      return true
-    })
-    .setMeta('addToHistory', false)
-    .setContent(content, { contentType: typeof content === 'string' ? 'markdown' : 'json' })
-    .run()
-
-  resetEditorHistory(editor)
-  emitEditorUndoRedoState(editor)
-}
-
 export function TipTapEditor({
   initialContent,
   onChange,
@@ -2493,6 +2480,7 @@ export function TipTapEditor({
   )
   const [editorRenderDurationMs, setEditorRenderDurationMs] = useState<number | null>(null)
   const t = useTranslations('editor')
+  const tSelfHosted = useTranslations('settings.sync.selfHosted')
   const tMermaid = useTranslations('editor.mermaid.templates')
   const tImage = useTranslations('editor.image')
   const tSourceMode = useTranslations('settings.editor.sourceMode')
@@ -2638,6 +2626,7 @@ export function TipTapEditor({
   const [isCanvasDragOver, setIsCanvasDragOver] = useState(false)
   const [isCanvasDropPending, setIsCanvasDropPending] = useState(false)
   const [selfHostedCollaborators, setSelfHostedCollaborators] = useState<SelfHostedRemoteCursor[]>([])
+  const [selfHostedSessionRevision, setSelfHostedSessionRevision] = useState(0)
   const aiActionHandlersRef = useRef({
     polish: async () => {},
     concise: async () => {},
@@ -3179,21 +3168,51 @@ export function TipTapEditor({
   const trySetMarkdownContent = useCallback((
     targetEditor: CoreEditor,
     content: string,
-    options: { emitUpdate?: boolean; resetHistory?: boolean; preparedTokens?: PreparedMarkdownTokens | null } = {}
+    options: { emitUpdate?: boolean; resetHistory?: boolean; preserveViewState?: boolean; preparedTokens?: PreparedMarkdownTokens | null } = {}
   ): boolean => {
+    const previousState = options.preserveViewState ? targetEditor.state : null
+    const scrollPositions = options.preserveViewState
+      ? [scrollContainerRef.current, targetEditor.view.dom]
+        .filter((element): element is HTMLElement => element !== null)
+        .map(element => ({ element, top: element.scrollTop, left: element.scrollLeft }))
+      : []
     applyingReadOnlySnapshotRef.current = true
     try {
       const parsedContent = options.preparedTokens?.source === content
         ? parsePreparedMarkdown(targetEditor, options.preparedTokens)
         : null
       const editorContent = parsedContent ?? content
+      const chain = targetEditor.chain()
       if (options.resetHistory) {
-        setEditorContentWithoutUndo(targetEditor, editorContent)
-      } else {
-        targetEditor.commands.setContent(editorContent, {
+        chain.command(({ tr }) => {
+          closeHistory(tr)
+          return true
+        }).setMeta('addToHistory', false)
+      }
+      chain
+        .setContent(editorContent, {
           contentType: typeof editorContent === 'string' ? 'markdown' : 'json',
           emitUpdate: options.emitUpdate,
         })
+        .command(({ tr }) => {
+          if (!previousState) return true
+          const start = previousState.doc.content.findDiffStart(tr.doc.content)
+          const end = previousState.doc.content.findDiffEnd(tr.doc.content)
+          let mapping = StepMap.empty
+          if (start !== null && end) {
+            // Repeated text can make the common prefix and suffix overlap.
+            const overlap = Math.max(0, start - Math.min(end.a, end.b))
+            mapping = new StepMap([start, end.a + overlap - start, end.b + overlap - start])
+          }
+          // Restore in the same transaction so no listener sees a cursor
+          // temporarily mapped to the end by the full-document replacement.
+          tr.setSelection(previousState.selection.getBookmark().map(mapping).resolve(tr.doc))
+          return true
+        })
+        .run()
+      if (options.resetHistory) {
+        resetEditorHistory(targetEditor)
+        emitEditorUndoRedoState(targetEditor)
       }
       setMarkdownParseError(null)
       setHasUnparsedSourceChanges(false)
@@ -3207,6 +3226,10 @@ export function TipTapEditor({
       setHasUnparsedSourceChanges(true)
       return false
     } finally {
+      for (const { element, top, left } of scrollPositions) {
+        element.scrollTop = top
+        element.scrollLeft = left
+      }
       applyingReadOnlySnapshotRef.current = false
     }
   }, [])
@@ -3249,6 +3272,23 @@ export function TipTapEditor({
   }, [])
 
   useEffect(() => {
+    let disposed = false
+    const rootPromise = getCurrentEditorWorkspaceRoot().catch(() => null)
+    const resetSession = async (event: Events['self-hosted-note-collaboration-reset']) => {
+      if (!editorPathsReferToSameFile(activeFilePath, event.path, event.workspaceRoot)) return
+      const root = await rootPromise
+      if (!disposed && root && workspaceRootsReferToSameLocation(root, event.workspaceRoot)) {
+        setSelfHostedSessionRevision(value => value + 1)
+      }
+    }
+    emitter.on('self-hosted-note-collaboration-reset', resetSession)
+    return () => {
+      disposed = true
+      emitter.off('self-hosted-note-collaboration-reset', resetSession)
+    }
+  }, [activeFilePath, workspacePath])
+
+  useEffect(() => {
     let cancelled = false
     let stopPresence: (() => void) | null = null
     const setup = async () => {
@@ -3268,12 +3308,15 @@ export function TipTapEditor({
       let setupMergeBaseMarkdown = setupBaseMarkdown
       let setupAuthoritativeMarkdown = setupBaseMarkdown
       let controllerReady = false
+      let setupFailed = false
+      let pendingController: MarkdownCollaborationController | null = null
+      let preservingConflict = false
       const applyAuthoritativeMarkdown = (markdown: string) => {
         externalUpdateCounterRef.current++
         sourceMarkdownRef.current = markdown
         setSourceMarkdown(markdown)
         if (!isSourceViewRef.current && !isInitializingVisualContentRef.current) {
-          trySetMarkdownContent(editor, markdown, { resetHistory: true })
+          trySetMarkdownContent(editor, markdown, { resetHistory: true, preserveViewState: true })
         }
         onChangeRef.current?.(markdown)
         queueMicrotask(() => {
@@ -3290,41 +3333,61 @@ export function TipTapEditor({
             if (!controllerReady && contentVersionRef.current === setupContentVersion) {
               setupMergeBaseMarkdown = markdown
             }
-            if (cancelled || markdown === sourceMarkdownRef.current) return
+            if (cancelled || setupFailed || markdown === sourceMarkdownRef.current) return
             if (!controllerReady && contentVersionRef.current !== setupContentVersion) return
             applyAuthoritativeMarkdown(markdown)
           },
         )
-        controllerReady = true
-        if (cancelled) controller.close()
+        pendingController = controller
+        if (cancelled) await controller.close()
         else {
-          selfHostedCollaborationRef.current = controller
           // Rebase edits made while the asynchronous session was opening onto
           // the authoritative baseline. Never replace that baseline wholesale
           // with the stale source ref captured before visual-editor debounce.
           if (contentVersionRef.current !== setupContentVersion) {
-            const setupLocalMarkdown = isSourceViewRef.current
-              ? sourceMarkdownRef.current
-              : normalizeMarkdownPlaceholders(editor.getMarkdown())
-            const mergedMarkdown = mergeCollaborationSetupMarkdown(
-              setupMergeBaseMarkdown,
-              setupLocalMarkdown,
-              setupAuthoritativeMarkdown,
-            )
-            const nextMarkdown = mergedMarkdown ?? setupAuthoritativeMarkdown
-            if (mergedMarkdown === null) {
-              console.warn('[self-hosted-sync] Concurrent setup edits overlapped; kept the authoritative document')
-            } else if (mergedMarkdown !== setupAuthoritativeMarkdown) {
-              controller.applyLocal(mergedMarkdown)
+            let conflictCopy: string | null = null
+            for (;;) {
+              const localVersion = contentVersionRef.current
+              const remoteMarkdown = setupAuthoritativeMarkdown
+              const setupLocalMarkdown = isSourceViewRef.current
+                ? sourceMarkdownRef.current
+                : normalizeMarkdownPlaceholders(editor.getMarkdown())
+              const mergedMarkdown = mergeCollaborationSetupMarkdown(
+                setupMergeBaseMarkdown,
+                setupLocalMarkdown,
+                remoteMarkdown,
+              )
+              if (mergedMarkdown === null) {
+                preservingConflict = true
+                conflictCopy = await controller.preserveLocalConflict(setupLocalMarkdown, setupMergeBaseMarkdown)
+                preservingConflict = false
+                if (cancelled) { await controller.close(); return }
+                // Editing and remote polling continue while the copy is saved.
+                // Update the same durable copy until both candidates are stable;
+                // never replace text entered during that asynchronous save.
+                if (contentVersionRef.current !== localVersion || setupAuthoritativeMarkdown !== remoteMarkdown) continue
+              } else if (mergedMarkdown !== remoteMarkdown) {
+                controller.applyLocal(mergedMarkdown)
+              }
+              const nextMarkdown = mergedMarkdown ?? remoteMarkdown
+              if (nextMarkdown !== setupLocalMarkdown) {
+                applyAuthoritativeMarkdown(nextMarkdown)
+              } else if (sourceMarkdownRef.current !== nextMarkdown) {
+                sourceMarkdownRef.current = nextMarkdown
+                setSourceMarkdown(nextMarkdown)
+                onChangeRef.current?.(nextMarkdown)
+              }
+              break
             }
-            if (nextMarkdown !== setupLocalMarkdown) {
-              applyAuthoritativeMarkdown(nextMarkdown)
-            } else if (sourceMarkdownRef.current !== nextMarkdown) {
-              sourceMarkdownRef.current = nextMarkdown
-              setSourceMarkdown(nextMarkdown)
-              onChangeRef.current?.(nextMarkdown)
+            if (conflictCopy) {
+              toast({ title: tSelfHosted('keepLocalCopy'), description: conflictCopy })
+              void useArticleStore.getState().loadFileTree({ skipRemoteSync: true }).catch(error => {
+                console.warn('[self-hosted-sync] Unable to refresh preserved conflict copy:', error)
+              })
             }
           }
+          controllerReady = true
+          selfHostedCollaborationRef.current = controller
           stopPresence = controller.subscribePresence(message => {
             const deviceId = typeof message.deviceId === 'string' ? message.deviceId : null
             if (!deviceId) return
@@ -3363,6 +3426,17 @@ export function TipTapEditor({
           }
         }
       } catch (error) {
+        setupFailed = true
+        if (pendingController) {
+          if (selfHostedCollaborationRef.current === pendingController) selfHostedCollaborationRef.current = null
+          await pendingController.close().catch(closeError => {
+            console.warn('[self-hosted-sync] Unable to close failed document setup:', closeError)
+          })
+        }
+        if (preservingConflict && !cancelled) {
+          toast({ title: tSelfHosted('conflictsTitle'),
+            description: error instanceof Error ? error.message : String(error), variant: 'destructive' })
+        }
         console.warn('[self-hosted-sync] Collaborative document is unavailable:', error)
       }
     }
@@ -3372,7 +3446,9 @@ export function TipTapEditor({
       stopPresence?.()
       setSelfHostedCollaborators([])
       flushCollaborationChange()
-      selfHostedCollaborationRef.current?.close()
+      void selfHostedCollaborationRef.current?.close().catch(error => {
+        console.warn('[self-hosted-sync] Unable to persist closing collaborative document:', error)
+      })
       selfHostedCollaborationRef.current = null
     }
   }, [
@@ -3383,7 +3459,9 @@ export function TipTapEditor({
     isMobile,
     primaryBackupMethod,
     selfHostedRuntimeReady,
+    selfHostedSessionRevision,
     standalone,
+    tSelfHosted,
     trySetMarkdownContent,
   ])
 
@@ -4410,7 +4488,7 @@ export function TipTapEditor({
   }, [activeFilePath, isActive, isSourceView, restoreEditorViewState])
 
   const scrollMobileSelectionIntoView = useCallback(() => {
-    if (!isMobile || !editor || editor.isDestroyed || !scrollContainerRef.current) {
+    if (!isMobile || !editor || editor.isDestroyed || !editor.isFocused || !scrollContainerRef.current) {
       return
     }
 
@@ -4468,6 +4546,9 @@ export function TipTapEditor({
     const isCurrentOperation = captureEditorOperation()
 
     const scheduleSelectionScroll = (minimumDelay = 0) => {
+      if (!editor.isFocused || externalUpdateCounterRef.current > 0 || applyingReadOnlySnapshotRef.current) {
+        return
+      }
       if (scrollTimer !== null) {
         window.clearTimeout(scrollTimer)
       }
@@ -5195,6 +5276,10 @@ export function TipTapEditor({
         frame = null
         try {
           if (!isCurrentOperation()) return
+          const scrollContainer = scrollContainerRef.current
+          if (scrollContainer) {
+            scrollContainer.scrollTop = scrollContainer.scrollHeight
+          }
           if (editorContainerRef.current) {
             const proseMirror = editorContainerRef.current.querySelector('.ProseMirror') as HTMLElement
             if (proseMirror) {
@@ -6110,7 +6195,7 @@ export function TipTapEditor({
             if (sequence !== canonicalExternalUpdateSequenceRef.current) {
               return
             }
-            trySetMarkdownContent(editor, newContent)
+            trySetMarkdownContent(editor, newContent, { preserveViewState: true })
           } finally {
             isReadyRef.current = true
             externalUpdateCounterRef.current = Math.max(0, externalUpdateCounterRef.current - 1)
@@ -6196,7 +6281,7 @@ export function TipTapEditor({
           if (sequence !== canonicalExternalUpdateSequenceRef.current) {
             return
           }
-          trySetMarkdownContent(editor, event.content)
+          trySetMarkdownContent(editor, event.content, { preserveViewState: true })
         } finally {
           isReadyRef.current = true
           if (pendingSyncUpdateRef.current === event) {
@@ -7713,6 +7798,14 @@ export function TipTapEditor({
           } : {}),
         } as CSSProperties}
       >
+      {!standalone && primaryBackupMethod === 'selfHosted' && (
+        <SelfHostedNoteConflicts
+          activeFilePath={activeFilePath}
+          isActive={isActive}
+          getMarkdown={getCurrentMarkdownSnapshot}
+          disabled={readOnly || !editable || isInitializingVisualContent}
+        />
+      )}
       {developerMode && developerPerformanceInfo ? (
         <div className="pointer-events-none absolute left-3 top-3 z-40 rounded-md border bg-background/90 px-2.5 py-2 font-mono text-[11px] leading-5 text-muted-foreground shadow-sm backdrop-blur">
           <div>{t('developerPerformance.documentSize')}: {formatDeveloperDocumentSize(sourceMarkdown)}</div>

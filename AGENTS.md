@@ -11,7 +11,7 @@ If there is no `.codegraph/`, skip CodeGraph. Do not initialize or refresh an in
 
 # NoteGen 开发与 AI 交接说明
 
-更新于 2026-10-30。新对话先读本文件及 [HTML Embed 模块说明](src/extensions/html-embed/README.md)，再检查实际 Git 状态；不要仅凭交接文字假定功能已经发布或平台已验收。
+更新于 2026-10-31。新对话先读本文件及 [HTML Embed 模块说明](src/extensions/html-embed/README.md)，再检查实际 Git 状态；不要仅凭交接文字假定功能已经发布或平台已验收。
 
 ## 仓库与工作方式
 
@@ -19,7 +19,7 @@ If there is no `.codegraph/`, skip CodeGraph. Do not initialize or refresh an in
 - fork：<https://github.com/TheFBplus/note-gen>，远端 `origin`。
 - 上游：<https://github.com/codexu/note-gen>，远端 `upstream`。
 - 本机目录：`/Volumes/Projects/Projects/Typescript/note-gen`；其他机器应以实际仓库根目录为准。这与 Unity TitanGame 无关。
-- 当前功能分支：`codex/html-embed`，开发基线是上游 `dev` 的 `d0c382a5`（NoteGen 0.39.1）。提交、推送及领先/落后情况以实际 Git 为准。
+- 当前功能分支：`codex/html-embed`，开发基线已合并至上游 `dev` 的 `20c50087`（NoteGen 0.39.1）。提交、推送及领先/落后情况以实际 Git 为准。
 - `dev` 用于同步上游；功能分支保存扩展。升级时先更新 `dev`，再合并到功能分支，解决冲突并验证。不要用覆盖目录、强制重置或强制推送替代正常合并。
 - 开工必查 `git status --short --branch`、`git branch -vv`、`git remote -v`，保留现有改动。用户已授权本次实现的提交与推送，不代表未来可以自动提交、推送、合并或发布。
 - `AGENTS.md` 已作为项目交接文件纳入版本控制；更新关键设计、实现和验证结果时同步维护。不要写入凭据或完整个人设置。
@@ -154,6 +154,9 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 
 
 ## 定制版云端构建（2026-10-30 配置）
+
+2026-10-31 上游合并：将 `upstream/dev` 的 `20c50087` 正常合并到功能分支，解决 `mobile-me-sheet.tsx` 冲突；保留上游的 `active` 参数、`usePathname`、同步状态与返回恢复逻辑，以及定制更新提醒。`IS_CUSTOM_BUILD` 导入移入导入区，避免紧邻函数声明产生无谓冲突。已通过冻结依赖安装、类型检查、相关 ESLint、HTML Embed 普通/DOM/React 与原 Markdown 回归、19+7+7 项云端控制面/渠道/提醒测试、更新 store 模拟原生边界检查、actionlint 和定制前端生产构建；没有通过覆盖文件、强制重置或强制推送处理。此次更新不启动新的云端打包。
+
 
 2026-10-31 定制更新实现：`src/extensions/custom-updates/` 新增协议校验、检查/忽略/安装 store、桌面/手机卡片与全局更新进度阻挡层。定制构建启动查独立渠道；桌面复用现有 native updater 和 NSIS 安装检测，下载后刷盘、安装、重启，Android 打开确定版本 APK 由系统确认安装。普通构建仍走上游策略。CI 额外产出 macOS 更新归档，在独立可信任务中签名/验证 Windows/macOS 更新包；发布成功后独立 `promote-channel` 才更新 `codex/custom-update-channel/latest.json`，失败可重试该任务。签名私钥在仓库外、密码在钥匙串，两个 CUSTOM_UPDATER Secrets 已按用户确认配置；只有公钥提交。详见 `scripts/custom-release/README.md`，下方早期“仅手动下载/不生成 latest.json”描述为历史行为。旧包需一次手动过渡安装；本轮本地验证：19 项控制面、7 项桌面签名/渠道、7 项上游提醒回归及前端原生边界模拟更新测试、类型检查、相关 ESLint、actionlint、定制前端生产构建通过；真实固定私钥签名与 Ed25519 验签/篡改拒绝也通过。未进行真实跨版本自动安装验收，不应据模拟测试声称已通过各平台安装。
 

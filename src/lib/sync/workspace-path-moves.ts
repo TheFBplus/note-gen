@@ -1,4 +1,5 @@
 import { exists, lstat } from '@tauri-apps/plugin-fs'
+import { invoke } from '@tauri-apps/api/core'
 import { Store } from '@tauri-apps/plugin-store'
 import emitter from '@/lib/emitter'
 import { getFilePathOptions } from '@/lib/workspace'
@@ -144,6 +145,12 @@ export async function withWorkspacePathMoves<T>(
     const additions: PathMove[] = []
     for (const { source, target } of moves) {
       if (!isWorkspacePath(source) || !isWorkspacePath(target) || source === target) continue
+      if (context.provider === 'selfHosted') {
+        // Reject an invalid destination before persisting a rename intent or
+        // changing local files. Legacy source names may be repaired in place.
+        await invoke<string>('self_hosted_move_source_path', { relativePath: source })
+        await invoke('self_hosted_portable_path', { relativePath: target })
+      }
       const options = await getFilePathOptions(source)
       const info = await lstat(options.path, { baseDir: options.baseDir })
       if (info.isSymlink || !(info.isFile || info.isDirectory)) continue
@@ -211,21 +218,22 @@ export function retryWorkspacePathMoves(): Promise<void> {
     await assertContext(context)
     const journal = await Store.load(context.journalName)
     const entries = readMoves(await journal.get(context.key))
+    const hadMoves = entries.length > 0
     while (entries.length) {
       const entry = entries[0]
       const finalTarget = destination(entry, entries.slice(1))
       try {
         await assertContext(context)
-        if (!entry.ready && await localExists(entry.source) && !await localExists(entry.target)) {
+        const sourceExists = await localExists(entry.source)
+        const targetExists = await localExists(finalTarget)
+        if (!entry.ready && sourceExists && !await localExists(entry.target)) {
           entries.shift() // Prepared before a local operation that never happened.
           await journal.set(context.key, entries)
           await journal.save()
           continue
         }
-        if (!await localExists(finalTarget)
-          || (await localExists(entry.source) && finalTarget !== entry.source)) {
-          throw new Error(`本地路径已再次变化，已保留远端原路径：${entry.source}`)
-        }
+        if (!targetExists) throw new Error(`本地重命名目标已不存在，已保留远端原路径：${entry.source} → ${finalTarget}`)
+        if (sourceExists && finalTarget !== entry.source) throw new Error(`本地原路径和新路径同时存在，未覆盖或删除任何文件：${entry.source} → ${finalTarget}`)
         if (!entry.ready) {
           await applyPathMoveMetadata(entry.metadata)
           entry.ready = true
@@ -309,6 +317,10 @@ export function retryWorkspacePathMoves(): Promise<void> {
         throw error
       }
     }
+    if (hadMoves && context.provider === 'selfHosted') {
+      const { getSelfHostedSyncRuntime } = await import('@/lib/self-hosted-sync/runtime')
+      await getSelfHostedSyncRuntime().wake('workspace:path-moves-completed')
+    }
   })
 }
 
@@ -332,4 +344,19 @@ export async function getPendingWorkspacePathMoves(): Promise<Array<{ source: st
   if (!context) return []
   const journal = await Store.load(context.journalName)
   return readMoves(await journal.get(context.key)).map(({ source, target }) => ({ source, target }))
+}
+
+/** Inspect the destination's dormant journal before an authoritative switch. */
+export async function hasPendingSelfHostedWorkspacePathMoves(workspaceIds: string[], profileId: string) {
+  const journal = await Store.load('workspace_path_moves.json')
+  for (const [key, value] of await journal.entries()) {
+    let context: unknown
+    try { context = JSON.parse(key) as unknown } catch { continue }
+    if (!Array.isArray(context) || context[2] !== 'selfHosted' || typeof context[3] !== 'string') continue
+    let identity: unknown
+    try { identity = JSON.parse(context[3]) as unknown } catch { continue }
+    if (!Array.isArray(identity) || identity[1] !== profileId || !workspaceIds.includes(String(identity[0]))) continue
+    if (readMoves(value).length) return true
+  }
+  return false
 }

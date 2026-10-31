@@ -300,7 +300,7 @@ interface SettingState {
   primaryBackupMethod: 'local' | 'github' | 'gitee' | 'gitlab' | 'gitea' | 's3' | 'webdav' | 'cloudFolder' | 'selfHosted'
   setPrimaryBackupMethod: (method: SettingState['primaryBackupMethod']) => Promise<void>
   /** Internal final commit; only the verified platform-switch coordinator calls this. */
-  commitVerifiedPrimaryBackupMethod: (method: 'local' | 'github' | 'gitee' | 'gitlab' | 'gitea' | 's3' | 'webdav' | 'cloudFolder' | 'selfHosted', onProgress?: (step: 'preparing' | 'saving' | 'starting' | 'reconciling') => void, strategy?: InitialDataSyncStrategy, reconcile?: () => Promise<void>, assertActive?: () => void) => Promise<void>
+  commitVerifiedPrimaryBackupMethod: (method: 'local' | 'github' | 'gitee' | 'gitlab' | 'gitea' | 's3' | 'webdav' | 'cloudFolder' | 'selfHosted', onProgress?: (step: 'preparing' | 'saving' | 'starting' | 'reconciling') => void, strategy?: InitialDataSyncStrategy, reconcile?: () => Promise<void | { selfHostedRuntimeReady: true }>, assertActive?: () => void) => Promise<void>
   commitUnverifiedPrimaryBackupMethod: (method: SyncPlatform, assertActive: () => Promise<void>) => Promise<void>
 
   lastSettingPage: string
@@ -588,6 +588,10 @@ async function persistChangedSettings(
 const useSettingStore = create<SettingState>((set, get) => ({
   initSettingData: (options) => withSettingsHydration(async () => {
     const store = await Store.load('store.json');
+    if (!options?.hydrateOnly) {
+      const { restoreManagedWorkspaceSettings } = await import('@/lib/managed-workspace')
+      await restoreManagedWorkspaceSettings(store)
+    }
     await restoreInterruptedPrimaryPlatform(store)
     if (options?.hydrateOnly) {
       // Platform switching has already normalized and persisted its snapshot.
@@ -1537,7 +1541,7 @@ const useSettingStore = create<SettingState>((set, get) => ({
     const { switchSyncPlatform } = await import('./sync-platform-switch')
     await switchSyncPlatform(method)
   },
-  commitVerifiedPrimaryBackupMethod: async (method: 'local' | 'github' | 'gitee' | 'gitlab' | 'gitea' | 's3' | 'webdav' | 'cloudFolder' | 'selfHosted', onProgress?: (step: 'preparing' | 'saving' | 'starting' | 'reconciling') => void, strategy: InitialDataSyncStrategy = 'auto', reconcile?: () => Promise<void>, assertActive?: () => void) => {
+  commitVerifiedPrimaryBackupMethod: async (method: 'local' | 'github' | 'gitee' | 'gitlab' | 'gitea' | 's3' | 'webdav' | 'cloudFolder' | 'selfHosted', onProgress?: (step: 'preparing' | 'saving' | 'starting' | 'reconciling') => void, strategy: InitialDataSyncStrategy = 'auto', reconcile?: () => Promise<void | { selfHostedRuntimeReady: true }>, assertActive?: () => void) => {
     assertActive?.()
     const pendingRecovery = await (await Store.load('store.json')).get<PlatformSwitchRecovery>('platformSwitchRecovery')
     if (pendingRecovery && (pendingRecovery.commitPlatform ?? pendingRecovery.platform) !== method) throw syncStaleError({ stage: 'verify', path: 'platformSwitchRecovery / commitPlatform', check: 'configuration' })
@@ -1560,10 +1564,14 @@ const useSettingStore = create<SettingState>((set, get) => ({
     try {
       // Reconciliation uses an explicit target. Keep the visible primary until
       // reconciliation and runtime preparation have both completed.
-      await reconcile?.()
-      onProgress?.('starting')
-      const { refreshSelfHostedSyncRuntime } = await import('@/lib/self-hosted-sync/lifecycle')
-      await refreshSelfHostedSyncRuntime(method)
+      const reconciled = await reconcile?.()
+      // A controlled self-hosted reconciliation already prepared and awaited
+      // its runtime. Starting it again would repeat the complete file scan.
+      if (method !== 'selfHosted' || !reconciled || !reconciled.selfHostedRuntimeReady) {
+        onProgress?.('starting')
+        const { refreshSelfHostedSyncRuntime } = await import('@/lib/self-hosted-sync/lifecycle')
+        await refreshSelfHostedSyncRuntime(method, () => assertActive?.())
+      }
       onProgress?.('saving')
       await withPrimaryPlatformLock(async () => {
         assertActive?.()
@@ -1574,10 +1582,12 @@ const useSettingStore = create<SettingState>((set, get) => ({
         if (pendingRecovery && (!recovery || recovery.startedAt !== pendingRecovery.startedAt || recovery.platform !== pendingRecovery.platform)) throw syncStaleError({ stage: 'verify', path: 'platformSwitchRecovery', check: 'configuration' })
         assertActive?.()
         const completesSwitch = (recovery?.commitPlatform ?? recovery?.platform) === method
+        const pendingConnectionReview = await store.get<string>('selfHostedConnectionReviewProfileId')
         let changed = false
         try {
           await store.set('primaryBackupMethod', method)
           changed = true
+          if (method === 'selfHosted') await store.delete('selfHostedConnectionReviewProfileId')
           if (completesSwitch) await store.delete('platformSwitchRecovery')
           assertActive?.()
           await store.save()
@@ -1587,6 +1597,7 @@ const useSettingStore = create<SettingState>((set, get) => ({
         } catch (error) {
           if (changed) {
             await store.set('primaryBackupMethod', previous)
+            if (pendingConnectionReview) await store.set('selfHostedConnectionReviewProfileId', pendingConnectionReview)
             if (completesSwitch && recovery) await store.set('platformSwitchRecovery', recovery)
             await store.save()
             set({ primaryBackupMethod: previous })
