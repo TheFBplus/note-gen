@@ -155,6 +155,9 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 
 ## 定制版云端构建（2026-10-30 配置）
 
+2026-11-03 通知补齐：上游新 Release Issue 明确提及通知账号；构建失败使用故障 Issue 的带提及评论通知，成功在固定 `[Custom dev builds] Successful releases` Issue 记录版本/下载入口并提及账号，同时关闭故障 Issue。同一 run ID 同类结果去重；失败转成功仍通知，无变化/跳过构建不发报告，历史 Release 不补发。默认 `@TheFBplus`，可用 Repository Variable `CUSTOM_NOTIFICATION_USER` 指定单个用户；沿用 GitHub 提及邮件，不增加 SMTP、不改变个人全局通知设置。已通过 23 项控制面与 7 项提醒回归及 actionlint；没有运行云端构建或主动补发历史邮件。
+
+
 2026-11-03 上游兼容合并：正常合并 `5dd1eae8`，保留上游 Wiki 元数据、Markdown 列表/AI 编辑修复及来源链接，同时注册 HTML Embed；编辑器和主/后台 lexer 的 tokenizer 顺序一致，协议升至 5，拒绝原上游 3 与定制 4 的缓存。顺应上游语言插件迁移删除德/日/葡/繁中整份旧语言文件，保留中英扩展文案；已安装其他语言插件缺自定义文案时通过上游机制回退英文。不恢复旧语言文件，不额外引入语言加载补丁。
 
 新增 `scripts/html-embed-upstream-schema.ts` 使用与生产相同的解析扩展顺序；普通 fixture 改用该组合配置。可选 DOM fixture 自动执行 Wiki/嵌套有序列表与内联/v2 文件嵌入往返、真正 worker 入口与主线程一致性、协议/注册顺序拒绝、AI 编辑前后嵌入与 Wiki 身份保留、切换文档清除旧标记、语言插件回退。`html-embed-export-cases.ts` 执行真实 HTML/PDF 共用导出渲染并验证源码/路径惰性，以及来源上下文变化时真实 Streamdown 链接刷新；仅测试环境隔离路由和 CSS，不改生产导出清理。已通过全量 Embed 普通/DOM/React/组合/导出回归、普通 Markdown fixture、33 项云端控制面/更新渠道/上游提醒测试、更新 store 原生边界模拟、类型检查、相关 ESLint、actionlint 与定制前端生产构建。手机真机、跨版本自动安装和新版 Wiki 业务流程仍需另行验收；本轮不启动云端打包。

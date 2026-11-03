@@ -316,24 +316,79 @@ def publish(args):
     output(release_url=release['html_url'])
 
 
+def notification_mention(repo):
+    # 本 fork 默认通知仓库所有者；可显式配置单个用户，禁止注入额外提及。
+    user = os.environ.get('CUSTOM_NOTIFICATION_USER') or repo.split('/')[0]
+    if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?', user):
+        raise PipelineError('Invalid notification username')
+    return '@' + user
+
+
+def notification_items(endpoint):
+    page = 1
+    while True:
+        items = api('GET', endpoint + ('&' if '?' in endpoint else '?') + f'per_page=100&page={page}')
+        if not isinstance(items, list):
+            raise PipelineError('Cannot read GitHub notification history')
+        yield from items
+        if len(items) < 100:
+            return
+        page += 1
+
+
+def post_build_result(repo, issue, title, body, marker):
+    message = f'{marker}\n{notification_mention(repo)}\n\n{body}'
+    if issue is None:
+        api('POST', f'repos/{repo}/issues', {'title': title, 'body': message})
+        return
+    # 同一运行的失败只提醒一次；失败后重跑成功仍会发成功提醒。
+    already_sent = marker in (issue.get('body') or '')
+    if not already_sent:
+        already_sent = any(marker in (comment.get('body') or '')
+                           and comment.get('user', {}).get('login') == 'github-actions[bot]'
+                           for comment in notification_items(f'repos/{repo}/issues/{issue["number"]}/comments'))
+    if not already_sent:
+        api('POST', f'repos/{repo}/issues/{issue["number"]}/comments', {'body': message})
+
+
 def notify(args):
     repo = repository()
-    title = '[Custom dev builds] Update requires attention'
-    issues = api('GET', f'repos/{repo}/issues?state=open&creator=github-actions%5Bbot%5D&per_page=100') or []
-    existing = next((item for item in issues if item['title'] == title and 'pull_request' not in item), None)
-    if args.success:
-        if existing:
-            api('PATCH', f'repos/{repo}/issues/{existing["number"]}', {'state': 'closed'})
-        return
     metadata = load(args.metadata) if Path(args.metadata).is_file() else {}
-    body = f'Custom dev update failed. Previous published packages are unchanged.\n\nRun: https://github.com/{repo}/actions/runs/{os.environ["GITHUB_RUN_ID"]}\n\n'
+    issues = list(notification_items(f'repos/{repo}/issues?state=all&creator=github-actions%5Bbot%5D'))
+    issues = [item for item in issues if 'pull_request' not in item]
+    failure_title = '[Custom dev builds] Update requires attention'
+    failure = next((item for item in issues if item['title'] == failure_title
+                    and item.get('state', 'open') == 'open'), None)
+    run_id = os.environ['GITHUB_RUN_ID']
+    run_url = f'https://github.com/{repo}/actions/runs/{run_id}'
+    marker = f'<!-- custom-build-result:{run_id}:{"success" if args.success else "failure"} -->'
+    if args.success:
+        # workflow 仅在三平台发布及更新渠道推进全部成功后传入 --success。
+        version, tag = metadata['version'], metadata['tag']
+        release_url = f'https://github.com/{repo}/releases/tag/{urllib.parse.quote(tag, safe="")}'
+        title = '[Custom dev builds] Successful releases'
+        success = next((item for item in issues if item['title'] == title), None)
+        body = (f'定制版 `{version}` 已成功发布，应用更新渠道已推进。\n\n'
+                f'- [下载 Windows x64、Apple Silicon、Android ARM64 安装包]({release_url})\n'
+                f'- [查看构建运行]({run_url})\n\n'
+                '桌面更新包已签名，Android 使用固定签名。尚未支持应用内更新的旧版需要手动安装。')
+        post_build_result(repo, success, title, body, marker)
+        if failure:
+            api('PATCH', f'repos/{repo}/issues/{failure["number"]}', {'state': 'closed'})
+        return
+    body = (f'定制构建或发布流程失败，请查看失败阶段。已发布的历史安装包保持不变。\n\n'
+            f'[查看构建运行]({run_url})\n\n'
+            '若 Release 已发布但更新渠道推进失败，可重跑失败任务恢复渠道。\n\n')
     body += 'Job results:\n```json\n' + os.environ.get('JOB_RESULTS', '{}') + '\n```\n'
     if metadata.get('conflicts'):
         body += '\nMerge conflicts:\n' + ''.join(f'- `{path}`\n' for path in metadata['conflicts'])
-    if existing:
-        api('PATCH', f'repos/{repo}/issues/{existing["number"]}', {'body': body})
-    else:
-        api('POST', f'repos/{repo}/issues', {'title': title, 'body': body})
+    post_build_result(repo, failure, failure_title, body, marker)
+    if failure:
+        # 正文作为当前故障摘要；每次新运行用带提及的评论通知，编辑正文不负责发邮件。
+        # 保留当前 marker，使首次创建后的同运行重试也能去重。
+        first = re.search(r'<!-- custom-build-result:[^>]+ -->', failure.get('body') or '')
+        retained = first[0] + '\n' if first and first[0] != marker else ''
+        api('PATCH', f'repos/{repo}/issues/{failure["number"]}', {'body': retained + marker + '\n' + body})
 
 
 def cleanup_artifacts(args):

@@ -293,14 +293,90 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn('secret-store-password', str(calls))
         self.assertFalse((self.root / 'custom-release.keystore').exists())
 
+    def notification_server(self):
+        issues, comments, writes = [], {}, []
+        def api(method, endpoint, data=None):
+            if method == 'GET':
+                if '/comments?' in endpoint:
+                    number = int(endpoint.split('/issues/')[1].split('/')[0])
+                    return comments.get(number, [])
+                if '/issues?' in endpoint:
+                    return issues
+                raise AssertionError(endpoint)
+            writes.append((method, endpoint, data))
+            if method == 'POST' and endpoint.endswith('/comments'):
+                number = int(endpoint.split('/issues/')[1].split('/')[0])
+                comments.setdefault(number, []).append(dict(data, user={'login': 'github-actions[bot]'}))
+            elif method == 'POST':
+                issues.append(dict(data, number=len(issues) + 1, state='open'))
+            elif method == 'PATCH':
+                number = int(endpoint.rsplit('/', 1)[1])
+                next(i for i in issues if i['number'] == number).update(data)
+            return None
+        return api, issues, comments, writes
+
     def test_failure_updates_one_issue_and_success_closes_it(self):
-        existing = {'title': '[Custom dev builds] Update requires attention', 'number': 9}
-        with patch.object(p, 'api', side_effect=lambda method, endpoint, data=None: [existing] if method == 'GET' else None) as api:
+        api, issues, comments, writes = self.notification_server()
+        p.save(self.root / 'metadata.json', {'version': '0.39.2-custom.5', 'tag': 'custom-tag'})
+        with patch.object(p, 'api', side_effect=api):
             p.notify(self.args(success=False))
-            self.assertEqual(api.call_args[0][0], 'PATCH')
-            self.assertIn('/issues/9', api.call_args[0][1])
+            self.assertIn('@Example', issues[0]['body'])
+            with patch.dict(os.environ, {'GITHUB_RUN_ID': '124'}):
+                p.notify(self.args(success=False))
+            self.assertEqual(len(issues), 1)
+            self.assertIn('@Example', comments[1][0]['body'])
             p.notify(self.args(success=True))
-            self.assertEqual(api.call_args[0][2], {'state': 'closed'})
+        self.assertEqual(issues[0]['state'], 'closed')
+        self.assertEqual(issues[1]['title'], '[Custom dev builds] Successful releases')
+        self.assertIn('@Example', issues[1]['body'])
+        self.assertIn('/releases/tag/custom-tag', issues[1]['body'])
+
+    def test_retried_build_result_does_not_repeat_mentions(self):
+        api, issues, comments, writes = self.notification_server()
+        with patch.object(p, 'api', side_effect=api):
+            p.notify(self.args(success=False))
+            with patch.dict(os.environ, {'GITHUB_RUN_ID': '124'}):
+                p.notify(self.args(success=False))
+                p.notify(self.args(success=False))
+            p.notify(self.args(success=False))
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(len(comments[1]), 1)
+        self.assertEqual(comments[1][0]['body'].count('@Example'), 1)
+
+    def test_success_results_reuse_one_issue_including_closed_issue(self):
+        api, issues, comments, writes = self.notification_server()
+        p.save(self.root / 'metadata.json', {'version': '0.39.2-custom.5', 'tag': 'custom-tag'})
+        with patch.object(p, 'api', side_effect=api):
+            p.notify(self.args(success=True))
+            issues[0]['state'] = 'closed'
+            p.notify(self.args(success=True))
+            with patch.dict(os.environ, {'GITHUB_RUN_ID': '124'}):
+                p.notify(self.args(success=True))
+                p.notify(self.args(success=True))
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(len(comments[1]), 1)
+        self.assertIn('custom.5', comments[1][0]['body'])
+
+    def test_notification_comment_failure_can_be_retried(self):
+        api, issues, comments, writes = self.notification_server()
+        with patch.object(p, 'api', side_effect=api):
+            p.notify(self.args(success=False))
+        def failing(method, endpoint, data=None):
+            if method == 'POST' and endpoint.endswith('/comments'):
+                raise p.PipelineError('network error')
+            return api(method, endpoint, data)
+        with patch.dict(os.environ, {'GITHUB_RUN_ID': '124'}):
+            with patch.object(p, 'api', side_effect=failing), self.assertRaises(p.PipelineError):
+                p.notify(self.args(success=False))
+            with patch.object(p, 'api', side_effect=api):
+                p.notify(self.args(success=False))
+        self.assertEqual(len(comments[1]), 1)
+
+    def test_notification_user_must_be_a_single_valid_username(self):
+        with patch.dict(os.environ, {'CUSTOM_NOTIFICATION_USER': 'TheFBplus'}):
+            self.assertEqual(p.notification_mention('Example/fork'), '@TheFBplus')
+        with patch.dict(os.environ, {'CUSTOM_NOTIFICATION_USER': 'user @another'}), self.assertRaises(p.PipelineError):
+            p.notification_mention('Example/fork')
 
     def test_artifact_cleanup_requires_a_published_release_and_keeps_metadata(self):
         p.save(self.root / 'metadata.json', {'tag': 'custom-test'})

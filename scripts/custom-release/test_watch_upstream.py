@@ -67,6 +67,7 @@ class ReminderTests(unittest.TestCase):
         check(github)
         self.assertEqual(len(github.issues), 1)
         self.assertIn('最新的上游 dev', github.issues[0]['body'])
+        self.assertIn('@TheFBplus', github.issues[0]['body'])
         github.issues[0]['state'] = 'closed'
         check(github)
         self.assertEqual(len(github.issues), 1)

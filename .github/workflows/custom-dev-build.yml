@@ -378,10 +378,11 @@ jobs:
         with:
           name: custom-build-metadata
           path: metadata
-      - name: Update one failure issue or close it after recovery
+      - name: Mention owner with build result and close resolved failure issue
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
+          CUSTOM_NOTIFICATION_USER: ${{ vars.CUSTOM_NOTIFICATION_USER || github.repository_owner }}
           JOB_RESULTS: ${{ toJSON(needs) }}
           PREPARE_RESULT: ${{ needs.prepare.result }}
           CHANGED: ${{ needs.prepare.outputs.changed }}

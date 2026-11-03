@@ -80,7 +80,7 @@ macOS 使用 `macos-15`，显式指定 `--bundles app,dmg` 保留 `.app` 供主�
 
 独立工作流 **Upstream release reminder**（`upstream-release-watch.yml`）每天 UTC 03:17 / 北京时间 11:17 检查 `codexu/note-gen` 的 GitHub Releases，也支持 Run workflow 手动检查；仅在默认分支运行。它不检查 dev 提交，不合并、不打包、不访问 Android 密钥，也不启动构建工作流。
 
-- 第一次成功运行只记录当前全部正式发布作为基线，不为历史版本创建 Issue。之后发现新的正式 Release ID 时，每个版本创建一个提醒 Issue，包含版本、UTC 发布时间、Release 链接和手动构建入口。排除草稿和 Prerelease；预发布转正式后会提醒。
+- 第一次成功运行只记录当前全部正式发布作为基线，不为历史版本创建 Issue。之后发现新的正式 Release ID 时，每个版本创建一个提醒 Issue，明确 @提及通知账号，包含版本、UTC 发布时间、Release 链接和手动构建入口。排除草稿和 Prerelease；预发布转正式后会提醒。
 - 去重状态保存于独立分支 `codex/upstream-release-state` 的 `upstream-release-state.json`。该分支不作为代码合并或构建来源，不回写功能分支。请不要删除状态分支；丢失后会重新建立基线。
 - Issue 创建后才保存状态；如果保存失败，重试会检查已有的机器人 Issue（包括已关闭的），避免对同一 Release 再次通知。没有变化不提交状态。多次运行串行执行。
 - 第一次运行完成前发布的版本都会纳入基线，因此启用后应先手动运行一次，建立基线。
@@ -115,7 +115,14 @@ macOS 使用 `macos-15`，显式指定 `--bundles app,dmg` 保留 `.app` 供主�
 
 ## 失败与恢复
 
-失败时 Actions 显示红色结果，并创建/更新一个固定标题的 Issue：`[Custom dev builds] Update requires attention`。报告包含运行链接、失败阶段、合并冲突文件；重复失败更新原 Issue。成功发布后关闭该 Issue。请自行启用 GitHub 邮件/Web 通知；如果 Issues 或写权限被禁用，Issue 创建也会失败，但 Actions 原生失败状态和日志仍保留。
+失败时 Actions 显示红色结果，并创建/更新固定标题 Issue：`[Custom dev builds] Update requires attention`。第一次创建时明确提及通知账号；之后每次新运行失败用带提及的评论通知，并更新正文故障摘要。报告含运行链接、失败阶段和冲突文件。
+
+三平台发布及应用更新渠道推进全部成功后，创建/复用 `[Custom dev builds] Successful releases` Issue；后续成功追加评论，含版本、Release 下载入口、运行链接并提及通知账号，同时关闭未解决的故障 Issue。成功日志被手动关闭后仍复用该 Issue，通过评论提醒，不反复新建。
+
+- 通知账号默认是仓库所有者（本 fork 为 `@TheFBplus`）；可在 Repository Variables 中设置单个 `CUSTOM_NOTIFICATION_USER`。无需邮箱凭据。
+- 通过 GitHub 的“参与、@mentions 和自定义”通知发信；账号需在该项开启 Email。创建 Issue 或发评论成功不等于邮件已送达，仍受 GitHub 投递、垃圾邮件过滤及个人设置影响。Actions 的“仅失败通知”可以继续保留；失败时可能同时收到 Actions 和提及两类邮件。
+- 无新版本、首次建立发布基线、源码未变化而跳过构建时不新增提醒。同一运行 ID 的同类结果去重；失败后重跑成功会另发成功提醒。历史已处理的上游 Release 不补发通知。
+- 如果 Issues 或写权限被禁用，报告会失败，Actions 原生状态和日志仍保留；恢复权限后重跑失败的 report 任务即可，通知去重会避免同一结果重复提及。
 
 处理方式：
 

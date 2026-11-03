@@ -5,7 +5,7 @@ import json
 import os
 from urllib.parse import quote
 
-from pipeline import PipelineError, api, repository
+from pipeline import PipelineError, api, repository, notification_mention
 
 UPSTREAM = 'codexu/note-gen'
 STATE_BRANCH = 'codex/upstream-release-state'
@@ -53,7 +53,7 @@ def check(request=api):
                 continue
             tag = release['tag_name']
             link = f'https://github.com/{UPSTREAM}/releases/tag/{quote(tag, safe="")}'
-            body = (f'{marker}\n上游 NoteGen 有新的正式发布。\n\n'
+            body = (f'{marker}\n{notification_mention(repo)}\n\n上游 NoteGen 有新的正式发布。\n\n'
                     f'- 版本：`{tag}`\n- 发布时间（UTC）：{release["published_at"]}\n'
                     f'- [查看上游 Release]({link})\n'
                     f'- [手动启动定制构建](https://github.com/{repo}/actions/workflows/custom-dev-build.yml)\n\n'
