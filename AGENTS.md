@@ -193,3 +193,11 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 HTML Embed 插入逻辑集中到 `commands.ts`，桌面/手机菜单集中到 `menus.tsx`，宿主只拼接和调度。扩展翻译移到 `src/extensions/locales/{en,zh}.json`，根布局内的 Provider 跟随上游语言刷新、保留语言插件覆盖并补齐缺失文案；不再修改上游 messages 字典及 suggestion.tsx。定制更新 `host.ts` 统一同步兼容字段，手机个人面板恢复上游实现；面板组件不再反向写入宿主状态。普通构建不连接此适配器。必须保留官方更新隔离、编辑器注册/上下文、worker 和导出接入；此重构减少冲突，不能保证未来无需人工合并。
 
 本轮验证：正常合并最新 `upstream/dev`（8601685c）无冲突，包含上游 Agent 差异导航；上游 en/zh 字典、suggestion.tsx 和 mobile-me-sheet.tsx 与该基线完全一致。类型检查、相关 ESLint、普通/DOM/React/worker/导出及新增宿主集成回归、原代码块往返、37 项云端控制面/签名渠道/提醒回归、更新 store 原生边界模拟、actionlint、定制模式前端生产构建均通过。本轮未启动云端打包，未执行移动真机或跨版本安装验收。
+
+## 2026-11-03 发布安全与 macOS 签名修复
+
+定制 CI 的 macOS 覆盖配置设 `signingIdentity: "-"`，仅 Windows 保留 `--no-sign`；收集时严格校验应用签名、只读挂载 DMG 后校验镜像内签名并比较内容，再生成更新归档。普通构建配置未修改。`sign-packages` 合并原两种签名任务，等待三平台完成并引用 `custom-release` Environment；只有该任务使用新名称 `RELEASE_ANDROID_*` / `RELEASE_UPDATER_*` 的五个环境 Secrets。不执行候选源码，不向编译任务传签名私钥。安装仍由用户点击。
+
+GitHub 环境规则必须实际配置；`check-environment` 会提前核验 TheFBplus 审阅、自审允许、禁止管理员绕过及仅允许 codex/html-embed 分支，否则停止。迁移环境密钥后须删除旧的五个 Repository Secrets，保留本机固定密钥及加密离线备份，不能重新生成替代。此处“自审允许”是单人仓库可用性选择，不代表审批可抵御账号本身失陷。Artifact 保留七天供审批，超期需重新运行。详见 custom-release README。本轮不自动启动云端构建；配置、远端保护与密钥迁移结果须分别核对，不可仅凭 YAML 声称全部生效。
+
+本轮本地验证：26 项控制面、7 项桌面签名/渠道、7 项上游提醒及更新 store 原生边界模拟、actionlint 均通过；用已有本地调试应用的临时副本完成真实 ad-hoc 签名、只读 DMG 挂载校验/内容比对，并验证篡改拒绝。未修改或放行已安装应用，未执行云端新构建、真实跨版本安装或移动真机验收。GitHub 已创建 custom-release 环境，但设置页空白导致审阅/分支规则与 Secrets 迁移暂未完成，新预检查会因此停止；不能把该环境的存在等同于已保护。

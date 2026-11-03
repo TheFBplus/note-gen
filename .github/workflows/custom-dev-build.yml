@@ -25,7 +25,7 @@ env:
 
 jobs:
   prepare:
-    if: github.repository == 'TheFBplus/note-gen'
+    if: github.repository == 'TheFBplus/note-gen' && github.ref == 'refs/heads/codex/html-embed'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -40,6 +40,10 @@ jobs:
         with:
           path: automation
           persist-credentials: false
+      - name: Fail closed unless release approval protection is configured
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 automation/scripts/custom-release/pipeline.py check-environment
       - name: Checkout custom source with full history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,35 +70,9 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  credentials:
+  validate:
     needs: prepare
     if: needs.prepare.outputs.changed == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Require persistent Android signing key before expensive builds
-        env:
-          HAS_KEYSTORE: ${{ secrets.CUSTOM_ANDROID_KEYSTORE_BASE64 != '' }}
-          HAS_STORE_PASSWORD: ${{ secrets.CUSTOM_ANDROID_KEYSTORE_PASSWORD != '' }}
-          HAS_KEY_PASSWORD: ${{ secrets.CUSTOM_ANDROID_KEY_PASSWORD != '' }}
-          HAS_UPDATER_KEY: ${{ secrets.CUSTOM_UPDATER_PRIVATE_KEY != '' }}
-          HAS_UPDATER_PASSWORD: ${{ secrets.CUSTOM_UPDATER_KEY_PASSWORD != '' }}
-        run: |
-          python3 - <<'PY'
-          import os, sys
-          names = {'HAS_KEYSTORE': 'CUSTOM_ANDROID_KEYSTORE_BASE64',
-                   'HAS_STORE_PASSWORD': 'CUSTOM_ANDROID_KEYSTORE_PASSWORD',
-                   'HAS_KEY_PASSWORD': 'CUSTOM_ANDROID_KEY_PASSWORD',
-                   'HAS_UPDATER_KEY': 'CUSTOM_UPDATER_PRIVATE_KEY',
-                   'HAS_UPDATER_PASSWORD': 'CUSTOM_UPDATER_KEY_PASSWORD'}
-          missing = [name for flag, name in names.items() if os.environ[flag] != 'true']
-          if missing:
-              print('::error::Configure repository Secrets: ' + ', '.join(missing) + '. See scripts/custom-release/README.md.')
-              sys.exit(1)
-          PY
-
-  validate:
-    needs: [prepare, credentials]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -166,7 +144,10 @@ jobs:
         env:
           BUILD_TARGET: ${{ matrix.target }}
           BUILD_BUNDLE: ${{ matrix.bundle }}
-        run: pnpm tauri build --ci --target "$BUILD_TARGET" --bundles "$BUILD_BUNDLE" --no-sign --config src-tauri/tauri.custom-ci.json -- --locked
+        run: |
+          signing_args=()
+          if [ "$BUILD_TARGET" != "aarch64-apple-darwin" ]; then signing_args+=(--no-sign); fi
+          pnpm tauri build --ci --target "$BUILD_TARGET" --bundles "$BUILD_BUNDLE" "${signing_args[@]}" --config src-tauri/tauri.custom-ci.json -- --locked
       - name: Verify architecture and collect installer
         env:
           BUILD_PLATFORM: ${{ matrix.platform }}
@@ -175,7 +156,7 @@ jobs:
         with:
           name: custom-package-${{ matrix.platform }}
           path: packages/*
-          retention-days: 3
+          retention-days: 7
           if-no-files-found: error
 
   android:
@@ -227,14 +208,28 @@ jobs:
         with:
           name: custom-android-unsigned
           path: unsigned/*.apk
-          retention-days: 1
+          retention-days: 7
           if-no-files-found: error
 
-  sign-android:
-    needs: [prepare, android]
+  sign-packages:
+    needs: [prepare, desktop, android]
+    environment: custom-release
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
+      - name: Require the five protected environment secrets after approval
+        env:
+          HAS_ANDROID_KEY: ${{ secrets.RELEASE_ANDROID_KEYSTORE_BASE64 != '' }}
+          HAS_ANDROID_STORE_PASSWORD: ${{ secrets.RELEASE_ANDROID_KEYSTORE_PASSWORD != '' }}
+          HAS_ANDROID_PASSWORD: ${{ secrets.RELEASE_ANDROID_KEY_PASSWORD != '' }}
+          HAS_UPDATER_KEY: ${{ secrets.RELEASE_UPDATER_PRIVATE_KEY != '' }}
+          HAS_UPDATER_PASSWORD: ${{ secrets.RELEASE_UPDATER_KEY_PASSWORD != '' }}
+        run: |
+          python3 - <<'PY'
+          import os
+          if any(os.environ[name] != 'true' for name in ['HAS_ANDROID_KEY', 'HAS_ANDROID_STORE_PASSWORD', 'HAS_ANDROID_PASSWORD', 'HAS_UPDATER_KEY', 'HAS_UPDATER_PASSWORD']):
+              raise SystemExit('Configure all five RELEASE_* secrets in the protected custom-release environment. See scripts/custom-release/README.md.')
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: automation
@@ -254,34 +249,15 @@ jobs:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: build-tools;36.0.0
-      - name: Sign and verify using only trusted automation code
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.CUSTOM_ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.CUSTOM_ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.CUSTOM_ANDROID_KEY_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ vars.CUSTOM_ANDROID_KEY_ALIAS }}
-        run: python3 automation/scripts/custom-release/pipeline.py sign-android --metadata metadata/build-info.json --apk unsigned/android-arm64-unsigned.apk --destination packages
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: custom-package-android-arm64
-          path: packages/*.apk
-          retention-days: 3
-          if-no-files-found: error
-
-  sign-desktop:
-    needs: [prepare, desktop]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: automation
-          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: custom-package-*
+          pattern: custom-package-*-x64
           merge-multiple: true
-          path: packages
+          path: desktop-packages
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: custom-package-macos-arm64
+          path: desktop-packages
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22.16.0
@@ -295,22 +271,36 @@ jobs:
           mkdir -p "$RUNNER_TEMP/updater-signer"
           pnpm --dir "$RUNNER_TEMP/updater-signer" add @tauri-apps/cli@2.11.3 --ignore-scripts
           mkdir signing
-          cp packages/*_windows-x64-setup.exe packages/*_macos-arm64.app.tar.gz signing/
+          cp desktop-packages/*_windows-x64-setup.exe desktop-packages/*_macos-arm64.app.tar.gz signing/
       - name: Sign and verify desktop updater files without running candidate scripts
         env:
           CUSTOM_TAURI_SIGNER: ${{ runner.temp }}/updater-signer/node_modules/.bin/tauri
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.CUSTOM_UPDATER_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.CUSTOM_UPDATER_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.RELEASE_UPDATER_KEY_PASSWORD }}
         run: python3 automation/scripts/custom-release/pipeline.py sign-desktop --destination signing
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: custom-package-desktop-signatures
           path: signing/*.sig
-          retention-days: 3
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Sign and verify using only trusted automation code
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.RELEASE_ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.RELEASE_ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ vars.CUSTOM_ANDROID_KEY_ALIAS }}
+        run: python3 automation/scripts/custom-release/pipeline.py sign-android --metadata metadata/build-info.json --apk unsigned/android-arm64-unsigned.apk --destination packages
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: custom-package-android-arm64
+          path: packages/*.apk
+          retention-days: 7
           if-no-files-found: error
 
   publish:
-    needs: [prepare, desktop, sign-desktop, sign-android]
+    needs: [prepare, sign-packages]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -360,8 +350,8 @@ jobs:
         run: python3 automation/scripts/custom-release/pipeline.py promote-channel --metadata metadata/build-info.json --destination packages
 
   report:
-    needs: [prepare, credentials, validate, desktop, android, sign-android, sign-desktop, publish, promote-channel]
-    if: always() && github.repository == 'TheFBplus/note-gen'
+    needs: [prepare, validate, desktop, android, sign-packages, publish, promote-channel]
+    if: always() && github.repository == 'TheFBplus/note-gen' && github.ref == 'refs/heads/codex/html-embed'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

@@ -18,11 +18,32 @@
 2. 仓库 Settings → General → Default branch：设为 **`codex/html-embed`**。这使该分支上的工作流具备手动/定时入口；`dev` 仍保持同步上游的用途。不要为启用定时任务把功能文件覆盖到 `dev`。
 3. Settings → General → Features：启用 **Issues**。fork 默认可能未启用，失败报告需要它。
 4. Actions 页面：如果提示 fork 的工作流被禁用，启用工作流。确认仓库策略允许配置中固定 SHA 的 GitHub 官方及 Android/pnpm Actions。工作流会按任务申请最小必要权限，组织策略也必须允许这些写操作。
-5. 配置下述 Android 三个 Secrets 和桌面更新签名两个 Secrets。未配置时会在预检查明确失败，不启动耗时的三平台构建，不生成临时签名顶替固定密钥。
+5. 按下方“受保护发布环境”配置审批、分支限制及五个 Environment Secrets。缺少保护规则时预检查停止；密钥缺失会在批准后的签名任务失败，不会生成临时密钥顶替。
 6. Actions → **Custom dev packages** → **Run workflow**，选择 `codex/html-embed`。首次不勾选 force。
 7. 在账号通知设置中启用 Actions 失败通知，并关注仓库中的失败 Issue。
 
 当前源码分支和仓库名称固定在工作流中；以后更名时同步修改工作流、更新渠道链接及本文。
+
+
+## 受保护发布环境（2026-11-03）
+
+工作流保持仅手动启动。合并冲突、测试失败或任一平台构建失败即停止；三平台完成后，一个 `sign-packages` 任务等待 `custom-release` 环境批准，批准一次才签名 Android 和桌面更新包，随后发布并推进渠道。签名任务只检出本轮启动时的可信功能分支自动化，不检出或执行候选源码；私钥仅传给对应签名步骤，不传给工具安装或编译步骤。
+
+在 Settings → Environments → `custom-release` 配置：
+
+1. Required reviewers：添加 `TheFBplus`。个人仓库保留自我审阅能力，不勾选 Prevent self-review，否则你无法批准自己启动的运行。
+2. 关闭 Allow administrators to bypass configured protection rules，保存保护规则。
+3. Deployment branches and tags：Selected branches and tags，仅添加 Branch `codex/html-embed`，不要添加 Tag 或通配符。
+4. Environment secrets：上传原有固定密钥和密码，使用 `RELEASE_ANDROID_KEYSTORE_BASE64`、`RELEASE_ANDROID_KEYSTORE_PASSWORD`、`RELEASE_ANDROID_KEY_PASSWORD`、`RELEASE_UPDATER_PRIVATE_KEY`、`RELEASE_UPDATER_KEY_PASSWORD`。值与原有五个 `CUSTOM_*` Secrets 相同，不能重新生成密钥。别名仍用非敏感 Variable `CUSTOM_ANDROID_KEY_ALIAS` 或默认值。
+5. 核对五个新 Secrets 已存在，并保留本机备份后，删除原来的五个 Repository Secrets。新流程不读取旧名称，但旧 Secrets 只要留在仓库级别，其他获授权工作流仍可能读取它们，因此迁移前不能声称已完成密钥隔离。
+
+配置不是只写 YAML 就会生效。`prepare` 会查询环境规则，缺少审阅者、允许管理员绕过、分支不匹配或禁止自审时直接停止，避免 GitHub 自动生成无保护环境后继续发布。环境审批会显示在 Actions 运行页的 Review deployments 中；审阅来源 SHA、构建验证结果和产物后批准。建议在七天内审阅，超过 Artifact 保留期重新构建。拒绝或取消不会发布新版本或推进更新渠道。已有 Release 不改写。
+
+macOS 定制覆盖配置使用 `signingIdentity: "-"`，构建时不再传 `--no-sign`，由 Tauri 在打包 DMG 前做临时应用签名。收集阶段严格验证 `.app`，只读挂载 DMG、验证镜像内签名，并比较两份应用内容；验证失败时不上传安装包。Tauri 更新包签名另用固定私钥，不能替代 macOS 应用签名或 Apple 公证。
+
+临时签名仍不是 Apple 认证，首次浏览器下载安装可能需要系统放行，不能承诺以后永远没有提示。不要关闭 Gatekeeper/SmartScreen/Defender。当前 Windows 仍未做发行者签名；Android 仍用固定密钥。应用维持自动检查、用户点击安装的行为，未增加静默安装；桌面在用户确认更新并安装后重启。跨版本安装需另做真实设备验收。
+
+备份：将仓库外的固定密钥、对应密码和别名保存在加密的外置介质或可信密码管理器，确认能恢复后再迁移；同一电脑上另存一份不算离线备份。不要把笔记、应用设置或 AI API Key 放进构建仓库。
 
 ## Android 密钥：只生成一次
 
@@ -46,13 +67,13 @@ keytool 会交互询问密码。PKCS12 通常使用相同的存储和密钥密�
 base64 -i "$HOME/.config/notegen-signing/notegen-custom.p12" | tr -d '\n' | pbcopy
 ```
 
-进入本 fork 的 Settings → Secrets and variables → Actions，创建 Repository Secrets：
+进入本 fork 的 Settings → Secrets and variables → Actions，在 `custom-release` 环境创建 Environment Secrets（不要创建为 Repository Secrets）：
 
 | 名称 | 内容 |
 | --- | --- |
-| `CUSTOM_ANDROID_KEYSTORE_BASE64` | 刚才复制的完整 Base64，不能含换行 |
-| `CUSTOM_ANDROID_KEYSTORE_PASSWORD` | keystore 密码 |
-| `CUSTOM_ANDROID_KEY_PASSWORD` | 该密钥的密码；PKCS12 通常与 keystore 相同 |
+| `RELEASE_ANDROID_KEYSTORE_BASE64` | 刚才复制的完整 Base64，不能含换行 |
+| `RELEASE_ANDROID_KEYSTORE_PASSWORD` | keystore 密码 |
+| `RELEASE_ANDROID_KEY_PASSWORD` | 该密钥的密码；PKCS12 通常与 keystore 相同 |
 
 默认别名为 `notegen-custom`。如果使用别的别名，在同一页面的 Variables 创建 `CUSTOM_ANDROID_KEY_ALIAS`。使用前确认没有把 Base64 内容误放到公开 Variable。
 
@@ -72,7 +93,7 @@ macOS 使用 `macos-15`，显式指定 `--bundles app,dmg` 保留 `.app` 供主�
 - 检查通过后并行编译三平台。包版本使用上游三段版本加 `-custom.<run_number>`；Android versionCode 为 `1000000000 + run_number`，Mac bundleVersion 为 run_number。请保留该工作流的运行序列，换工作流/仓库时先规划 versionCode 连续性。
 - 所有平台成功后，先创建草稿 Release，上传三份安装包、macOS 更新归档、两份桌面签名、`build-info.json`、`SHA256SUMS.txt`，验证齐全后才公开为 Prerelease。部分失败不会发布半套包，也不覆盖已发布版本。
 - Release 标签包含上游及自定义提交摘要。force 会生成新的运行标签，不覆盖已有版本。记录的来源提交对应候选代码；打包版本/更新端点覆盖配置是明确记录的构建阶段生成物。
-- 发布成功后清理本轮重复的包 Artifact，并删除临时分支；来源仍可通过 Release 标签追溯。失败元数据保留 7 天，包产物最多 3 天，未签名 Android 中间包最多 1 天。
+- 发布成功后清理本轮重复的包 Artifact，并删除临时分支；来源仍可通过 Release 标签追溯。失败元数据、包产物和 Android 中间包最多保留 7 天，供人工审批及排查。
 
 只有合并结果经你确认并合并回功能分支后，后续维护分支才会前进。本流程自动生成候选安装包，不替代源码审查。
 
@@ -94,12 +115,12 @@ macOS 使用 `macos-15`，显式指定 `--bundles app,dmg` 保留 `.app` 供主�
 
 定制 CI 覆盖配置内置本 fork 的更新公钥与固定端点，不使用上游更新公钥/地址；普通本地构建仍保留原版行为。`createUpdaterArtifacts` 保持关闭，可信控制面自行打包 macOS `.app.tar.gz`，在独立 Ubuntu 签名任务对 Windows NSIS 和 macOS 更新归档执行固定版本 Tauri CLI 签名，并通过 minisign 验证。编译任务不接触桌面/Android 私钥。Tauri `.sig` 是 Base64 包装的 minisign 文本，验证时需先解码；客户端清单使用原 `.sig` 内容。
 
-新增 Repository Secrets：
+在 `custom-release` 环境新增 Environment Secrets：
 
 | 名称 | 内容 |
 | --- | --- |
-| `CUSTOM_UPDATER_PRIVATE_KEY` | 固定 Tauri 更新私钥文件的完整文本，不是 Android keystore |
-| `CUSTOM_UPDATER_KEY_PASSWORD` | 该更新私钥的密码 |
+| `RELEASE_UPDATER_PRIVATE_KEY` | 固定 Tauri 更新私钥文件的完整文本，不是 Android keystore |
+| `RELEASE_UPDATER_KEY_PASSWORD` | 该更新私钥的密码 |
 
 公钥位于 `scripts/custom-release/updater-public-key.txt`，可以公开提交。私钥已在本机仓库外 `~/.config/notegen-signing/notegen-updater.key` 生成，密码存 macOS 钥匙串 **NoteGen updater signing password**（service `com.thefbplus.notegen.updater`、account `notegen-custom-updater`），两个 Secrets 已按用户确认配置。请备份固定私钥和密码；替换公钥需要安排旧版迁移，不可每次构建重新生成。
 

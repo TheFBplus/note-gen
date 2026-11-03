@@ -36,13 +36,14 @@ class PipelineTests(unittest.TestCase):
         dmg.parent.mkdir()
         dmg.write_bytes(b'fixture-dmg')
         p.save(self.root / 'metadata.json', {'version': '0.39.1-custom.42'})
-        with patch.object(p, 'run') as command:
+        with patch.object(p, 'run') as command, patch.object(p, 'verify_macos_dmg') as verify:
             command.return_value.stdout = 'arm64\n'
             p.collect(self.args(platform='macos-arm64'))
             self.assertEqual([c.args for c in command.call_args_list], [
                 ('lipo', '-archs', str(app / 'Contents/MacOS/note-gen')),
                 ('lipo', '-archs', str(app / 'Contents/Resources/resources/ocr/notegen-ocr-vision')),
             ])
+        verify.assert_called_once_with(app, dmg)
         packages = list((self.root / 'packages').iterdir())
         self.assertEqual({f.suffix for f in packages}, {'.dmg', '.gz'})
         self.assertEqual(next(f for f in packages if f.suffix == '.dmg').read_bytes(), b'fixture-dmg')
@@ -60,6 +61,51 @@ class PipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(p.PipelineError, 'Expected arm64 Mach-O'):
                 p.collect(self.args(platform='macos-arm64'))
         self.assertEqual(list((self.root / 'packages').iterdir()), [])
+
+    def test_macos_signature_or_image_mismatch_stops_collection(self):
+        app = self.root / 'NoteGen.app'
+        app.mkdir()
+        for failure in ['signature', 'mismatch']:
+            calls = []
+            def command(*args):
+                calls.append(args)
+                if args[0] == 'hdiutil' and args[1] == 'attach':
+                    (Path(args[-1]) / 'NoteGen.app').mkdir()
+                if (failure == 'signature' and args[0] == 'codesign') or (failure == 'mismatch' and args[0] == 'diff'):
+                    raise p.PipelineError(failure)
+            with patch.object(p, 'run', side_effect=command):
+                with self.assertRaisesRegex(p.PipelineError, failure):
+                    p.verify_macos_dmg(app, self.root / 'test.dmg')
+            if failure == 'mismatch':
+                self.assertEqual(calls[-1][:2], ('hdiutil', 'detach'))
+            else:
+                self.assertEqual(len(calls), 1)
+
+    def test_release_secrets_are_only_used_after_all_builds_and_approval(self):
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/custom-dev-build.yml').read_text()
+        before, signing = workflow.split('  sign-packages:', 1)
+        signing, after = signing.split('  publish:', 1)
+        self.assertNotIn('secrets.', before)
+        self.assertNotIn('secrets.', after)
+        self.assertIn('environment: custom-release', signing)
+        self.assertIn('needs: [prepare, desktop, android]', signing)
+        self.assertNotIn('ref: ${{ needs.prepare.outputs.candidate_sha }}', signing)
+        self.assertNotIn('custom-build-setup', signing)
+        self.assertIn("github.ref == 'refs/heads/codex/html-embed'", before)
+
+    def test_release_environment_fails_closed_on_missing_or_weakened_rules(self):
+        environment = {'can_admins_bypass': False, 'protection_rules': [
+            {'type': 'required_reviewers', 'prevent_self_review': False, 'reviewers': [{'reviewer': {'login': 'TheFBplus'}}]}],
+            'deployment_branch_policy': {'protected_branches': False, 'custom_branch_policies': True}}
+        branches = {'branch_policies': [{'name': 'codex/html-embed', 'type': 'branch'}]}
+        with patch.object(p, 'api', side_effect=[environment, branches]):
+            p.check_release_environment(self.args())
+        for weakened in [None, {}, dict(environment, can_admins_bypass=True), dict(environment, protection_rules=[])]:
+            with patch.object(p, 'api', return_value=weakened):
+                with self.assertRaises(p.PipelineError): p.check_release_environment(self.args())
+        for policies in [[], [{'name': '*', 'type': 'branch'}], [{'name': 'codex/html-embed', 'type': 'tag'}]]:
+            with patch.object(p, 'api', side_effect=[environment, {'branch_policies': policies}]):
+                with self.assertRaises(p.PipelineError): p.check_release_environment(self.args())
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -149,6 +195,7 @@ class PipelineTests(unittest.TestCase):
         p.configure(self.args())
         overlay = p.load(source / 'src-tauri/tauri.custom-ci.json')
         self.assertFalse(overlay['bundle']['createUpdaterArtifacts'])
+        self.assertEqual(overlay['bundle']['macOS']['signingIdentity'], '-')
         self.assertEqual(overlay['plugins']['updater']['endpoints'], ['https://raw.githubusercontent.com/TheFBplus/note-gen/refs/heads/codex/custom-update-channel/latest.json'])
         self.assertEqual(overlay['plugins']['updater']['pubkey'], Path(p.__file__).with_name('updater-public-key.txt').read_text().strip())
         self.assertEqual(overlay['bundle']['android']['versionCode'], 1000000042)

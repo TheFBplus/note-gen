@@ -12,6 +12,7 @@ import struct
 import subprocess
 import sys
 import tarfile
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -130,6 +131,27 @@ def prepare(args):
            version=version, android_version_code=code)
 
 
+def check_release_environment(args):
+    """环境不存在或规则被移除时提前失败，避免 GitHub 自动创建无审批环境。"""
+    endpoint = f'repos/{repository()}/environments/custom-release'
+    environment = api('GET', endpoint)
+    if not environment:
+        raise PipelineError('Configure the protected custom-release environment first')
+    rules = environment.get('protection_rules', [])
+    reviewers = next((rule for rule in rules if rule.get('type') == 'required_reviewers'), {})
+    approved = [item.get('reviewer', {}).get('login') for item in reviewers.get('reviewers', [])]
+    policy = environment.get('deployment_branch_policy') or {}
+    if ('TheFBplus' not in approved or reviewers.get('prevent_self_review', False)
+            or environment.get('can_admins_bypass', True)
+            or not policy.get('custom_branch_policies') or policy.get('protected_branches')):
+        raise PipelineError('custom-release requires owner approval, no admin bypass, self-review allowed and selected branch restrictions')
+    branches = api('GET', endpoint + '/deployment-branch-policies?per_page=100') or {}
+    selected = branches.get('branch_policies', [])
+    if len(selected) != 1 or selected[0].get('name') != 'codex/html-embed' or selected[0].get('type') != 'branch':
+        raise PipelineError('custom-release must allow only the codex/html-embed branch')
+    print('Release environment protection verified; signing still requires manual approval.')
+
+
 def configure(args):
     root = Path(args.root)
     metadata = load(args.metadata)
@@ -140,7 +162,7 @@ def configure(args):
         'version': metadata['version'],
         'bundle': {'createUpdaterArtifacts': False,
                    'android': {'versionCode': metadata['android_version_code']},
-                   'macOS': {'bundleVersion': str(metadata['run_number'])}},
+                   'macOS': {'bundleVersion': str(metadata['run_number']), 'signingIdentity': '-'}},
         'plugins': {'updater': {
             'pubkey': Path(__file__).with_name('updater-public-key.txt').read_text().strip(),
             'endpoints': ['https://raw.githubusercontent.com/TheFBplus/note-gen/refs/heads/codex/custom-update-channel/latest.json']}},
@@ -189,6 +211,22 @@ def check_windows(path):
         raise PipelineError('Expected Windows x64 application binary')
 
 
+def verify_macos_dmg(app, dmg):
+    """只读挂载发行镜像；验证签名，并确保镜像和更新归档使用同一份应用。"""
+    run('codesign', '--verify', '--deep', '--strict', '--verbose=2', str(app))
+    with tempfile.TemporaryDirectory(prefix='notegen-dmg-verify-') as directory:
+        mounted = False
+        try:
+            run('hdiutil', 'attach', str(dmg), '-readonly', '-nobrowse', '-noautoopen', '-mountpoint', directory)
+            mounted = True
+            bundled = one(Path(directory).glob('*.app'))
+            run('codesign', '--verify', '--deep', '--strict', '--verbose=2', str(bundled))
+            run('diff', '-qr', str(app), str(bundled))
+        finally:
+            if mounted:
+                run('hdiutil', 'detach', directory)
+
+
 def collect(args):
     root, destination = Path(args.root), Path(args.destination)
     metadata = load(args.metadata)
@@ -205,10 +243,11 @@ def collect(args):
         for relative in ['Contents/MacOS/note-gen', 'Contents/Resources/resources/ocr/notegen-ocr-vision']:
             if run('lipo', '-archs', str(app / relative)).stdout.strip() != 'arm64':
                 raise PipelineError(f'Expected arm64 Mach-O: {relative}')
+        source = one((target / 'dmg').glob('*.dmg'))
+        verify_macos_dmg(app, source)
         # 保留符号链接和执行权限，使用 Tauri updater 所需的顶层 .app 目录。
         with tarfile.open(destination / (prefix + '_macos-arm64.app.tar.gz'), 'w:gz', dereference=False) as archive:
             archive.add(app, arcname=app.name)
-        source = one((target / 'dmg').glob('*.dmg'))
         filename = prefix + '_macos-arm64.dmg'
     else:
         source = one((root / 'src-tauri/gen/android/app/build/outputs/apk/arm64/release').glob('*-unsigned.apk'))
@@ -408,7 +447,7 @@ def cleanup_artifacts(args):
 def main():
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest='command', required=True)
-    for command in ['prepare', 'configure', 'android-init', 'collect', 'sign-android', 'publish', 'notify', 'cleanup-artifacts', 'sign-desktop', 'promote-channel']:
+    for command in ['check-environment', 'prepare', 'configure', 'android-init', 'collect', 'sign-android', 'publish', 'notify', 'cleanup-artifacts', 'sign-desktop', 'promote-channel']:
         item = sub.add_parser(command)
         item.add_argument('--root', default='.')
         item.add_argument('--metadata', default='build-info.json')
@@ -425,7 +464,7 @@ def main():
         if command == 'notify':
             item.add_argument('--success', action='store_true')
     args = parser.parse_args()
-    functions = {'prepare': prepare, 'configure': configure, 'android-init': prepare_android, 'collect': collect,
+    functions = {'check-environment': check_release_environment, 'prepare': prepare, 'configure': configure, 'android-init': prepare_android, 'collect': collect,
                  'sign-android': sign_android, 'publish': publish, 'notify': notify, 'cleanup-artifacts': cleanup_artifacts}
     try:
         if args.command in ['sign-desktop', 'promote-channel']:
