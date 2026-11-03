@@ -17,14 +17,6 @@ export const noteGenDefaultModels: AiConfig[] = [
         "enableStream": true
       },
       {
-        "id": "note-gen-free-chat",
-        "model": "free",
-        "modelType": "chat",
-        "temperature": 0.7,
-        "topP": 1,
-        "enableStream": true
-      },
-      {
         "id": "note-gen-embedding", 
         "model": "BAAI/bge-m3",
         "modelType": "embedding",

@@ -40,7 +40,7 @@ export function normalizeSettingsSnapshot(value: Record<string, unknown>, defaul
   }
   for (const key of ['primaryModel', 'editorModel', 'placeholderModel', 'imageMethodModel', 'completionModel', 'markDescModel', 'commitModel']) {
     const value = result[key]
-    if (typeof value === 'string' && (value.startsWith('note-gen-limited') || value.startsWith('note-gen-free-note-gen-limited') || value === 'note-gen-vlm' || value === 'note-gen-free-note-gen-vlm')) result[key] = 'note-gen-chat'
+    if (typeof value === 'string' && (value.startsWith('note-gen-limited') || value.startsWith('note-gen-free-note-gen-limited') || value === 'note-gen-free-chat' || value === 'note-gen-free-note-gen-free-chat' || value === 'note-gen-vlm' || value === 'note-gen-free-note-gen-vlm')) result[key] = 'note-gen-chat'
   }
   // Keep the final snapshot inside the same boundary even when a migration
   // adds fields. Preview, persistence, verification and recovery share it.

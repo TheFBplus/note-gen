@@ -26,6 +26,7 @@ import type { AgentTraceEvent, ConfirmationRecord } from "@/lib/agent/types"
 import type { AgentApprovalDecision, AgentSteeringPayload } from "@/lib/agent/types"
 import { serializeChatAttachments, type RuntimeChatAttachment } from '@/lib/chat-attachments'
 import { retainCompletedAgentTraceEvents } from '@/lib/agent/trace-retention'
+import { noteGenModelDisplayName } from '@/components/notegen-model-label'
 import { getAISettingsByModelId } from '@/lib/ai/utils'
 import { applyChatReasoningOverride } from '@/lib/ai/chat-reasoning'
 import type { AiConfig } from '@/app/core/setting/config'
@@ -1196,7 +1197,7 @@ ${hasValidRange ? `**仅在用户明确要求修改/改写/补充/插入时才�
       )
       const modelSnapshot = {
         id: modelId,
-        name: aiConfig?.model || modelId,
+        name: noteGenModelDisplayName(aiConfig?.model || modelId, aiConfig?.key === 'note-gen-free'),
         config: aiConfig,
       }
       setAgentState({

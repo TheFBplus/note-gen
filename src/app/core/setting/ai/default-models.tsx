@@ -16,14 +16,11 @@ import { Button } from "@/components/ui/button";
 import { Gem, Move3D, MessageSquare } from "lucide-react";
 import Image from 'next/image';
 import { open } from '@tauri-apps/plugin-shell'
-import { useNoteGenLimitedUsage } from '@/hooks/use-notegen-limited-usage'
 import { NoteGenModelLabel } from '@/components/notegen-model-label'
-import { NOTEGEN_FREE_MODEL, NOTEGEN_LIMITED_MODEL } from '@/lib/ai/sponsored-model-limits'
+import { NOTEGEN_LIMITED_MODEL } from '@/lib/ai/sponsored-model-limits'
 
 export default function DefaultModelsSection() {
   const t = useTranslations('settings.ai.defaultModels');
-  const quotaText = useTranslations('common.noteGenLimited');
-  const limitedUsage = useNoteGenLimitedUsage();
   const { theme, systemTheme } = useTheme();
   
   // 确定当前主题
@@ -41,12 +38,6 @@ export default function DefaultModelsSection() {
   const models = [
     {
       name: NOTEGEN_LIMITED_MODEL,
-      type: t('chatModel.type'),
-      desc: quotaText('description', { limit: limitedUsage.limit, model: limitedUsage.modelName, freeModel: limitedUsage.freeName }),
-      icon: <MessageSquare />,
-    },
-    {
-      name: NOTEGEN_FREE_MODEL,
       type: t('chatModel.type'),
       desc: t('chatModel.desc'),
       icon: <MessageSquare />,
@@ -81,7 +72,7 @@ export default function DefaultModelsSection() {
             <Item key={index} variant="outline">
               <ItemMedia variant="icon">{model.icon}</ItemMedia>
               <ItemContent>
-                <ItemTitle><NoteGenModelLabel model={model.name} builtin limitedName={limitedUsage.activeModelName} limitedDetail={limitedUsage.detail} /></ItemTitle>
+                <ItemTitle><NoteGenModelLabel model={model.name} builtin showFree /></ItemTitle>
                 <ItemDescription className="line-clamp-none">{model.desc}</ItemDescription>
               </ItemContent>
               <ItemActions>

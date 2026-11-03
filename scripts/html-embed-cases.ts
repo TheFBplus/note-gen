@@ -1,20 +1,13 @@
 import assert from 'node:assert/strict'
-import { MarkdownManager, Markdown } from '@tiptap/markdown'
-import StarterKit from '@tiptap/starter-kit'
-import CodeBlock from '@tiptap/extension-code-block'
+import { MarkdownManager } from '@tiptap/markdown'
 import type { JSONContent } from '@tiptap/core'
-import { HtmlEmbedNode } from '../src/extensions/html-embed/node'
 import { HTML_EMBED_EXAMPLE, renderHtmlEmbedMarkdown } from '../src/extensions/html-embed/markdown'
 import { buildEmbedDocument } from '../src/extensions/html-embed/sandbox'
 import { createMarkdownLexer } from '../src/app/core/main/editor/markdown/markdown-tokenizers'
-import { parseFencedCodeBlockToken, renderFencedCodeBlockNode } from '../src/app/core/main/editor/markdown/code-block-markdown'
 
-const manager = new MarkdownManager({ extensions: [
-  StarterKit.configure({ codeBlock: false }),
-  CodeBlock.extend({ parseMarkdown: parseFencedCodeBlockToken, renderMarkdown: renderFencedCodeBlockNode }),
-  HtmlEmbedNode,
-  Markdown,
-] })
+import { combinedMarkdownExtensions } from './html-embed-upstream-schema'
+
+const manager = new MarkdownManager({ extensions: combinedMarkdownExtensions() })
 const find = (node: JSONContent, type: string): JSONContent[] => [
   ...(node.type === type ? [node] : []), ...(node.content ?? []).flatMap(child => find(child, type)),
 ]

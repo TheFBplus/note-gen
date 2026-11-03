@@ -22,8 +22,7 @@ import { Button } from "@/components/ui/button"
 import { ChatToolItem } from "./chat-tool-item"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "@/hooks/use-toast"
-import { useNoteGenLimitedUsage } from '@/hooks/use-notegen-limited-usage'
-import { noteGenModelDisplayName } from '@/components/notegen-model-label'
+import { NoteGenModelLabel, noteGenModelDisplayName } from '@/components/notegen-model-label'
 import {
   changePrimaryChatModel,
   collectGroupedChatModels,
@@ -42,13 +41,12 @@ export function ModelSelect({ display = 'icon', disabled = false }: ModelSelectP
   const [open, setOpen] = React.useState(false)
   const t = useTranslations('record.chat.input.modelSelect')
   const tTools = useTranslations('record.chat.input.toolsMenu')
-  const limitedUsage = useNoteGenLimitedUsage()
 
   async function modelSelectChangeHandler(modelId: string) {
     const nextModel = groupedModels.find(item => item.model.id === modelId)
     const previousModel = groupedModels.find(item => item.model.id === primaryModel)
-    const nextName = noteGenModelDisplayName(nextModel?.model.model || modelId, nextModel?.configKey === 'note-gen-free', limitedUsage.activeModelName)
-    const previousName = noteGenModelDisplayName(previousModel?.model.model || primaryModel, previousModel?.configKey === 'note-gen-free', limitedUsage.activeModelName)
+    const nextName = noteGenModelDisplayName(nextModel?.model.model || modelId, nextModel?.configKey === 'note-gen-free')
+    const previousName = noteGenModelDisplayName(previousModel?.model.model || primaryModel, previousModel?.configKey === 'note-gen-free')
     const result = await changePrimaryChatModel({
       modelId,
       modelName: nextName,
@@ -94,7 +92,7 @@ export function ModelSelect({ display = 'icon', disabled = false }: ModelSelectP
     && agentState.activeModelId !== primaryModel
   )
   const selectedModelLabel = selectedModel?.model.model || t('noModel')
-  const selectedDisplayName = noteGenModelDisplayName(selectedModelLabel, selectedModel?.configKey === 'note-gen-free', limitedUsage.activeModelName)
+  const selectedDisplayName = noteGenModelDisplayName(selectedModelLabel, selectedModel?.configKey === 'note-gen-free')
   const displayedModelLabel = appliesNextTurn
     ? `${agentState.activeModelName || agentState.activeModelId} → ${selectedDisplayName}`
     : selectedDisplayName
@@ -151,7 +149,10 @@ export function ModelSelect({ display = 'icon', disabled = false }: ModelSelectP
           <CommandList className="min-w-0 overflow-x-hidden">
             <CommandEmpty>{t('noModel')}</CommandEmpty>
             {Object.entries(groupedByConfig).map(([configTitle, models]) => (
-              <CommandGroup key={configTitle} heading={configTitle}>
+              <CommandGroup
+                key={configTitle}
+                heading={configTitle}
+              >
                 {models.map((item) => (
                   <CommandItem
                     className="min-w-0"
@@ -164,7 +165,7 @@ export function ModelSelect({ display = 'icon', disabled = false }: ModelSelectP
                     }}
                   >
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate font-medium">{noteGenModelDisplayName(item.model.model, item.configKey === 'note-gen-free', limitedUsage.activeModelName)}</span>
+                      <span className="truncate font-medium"><NoteGenModelLabel model={item.model.model} builtin={item.configKey === 'note-gen-free'} showFree /></span>
                     </div>
                   </CommandItem>
                 ))}

@@ -71,7 +71,7 @@ Markdown 保留专用围栏。HTML/PDF 导出继续走上游 Streamdown 流程�
 2. `markdown-tokenizers.ts`：注册同一个 tokenizer，兼顾主线程与后台 lexer；`markdown-lexer-protocol.ts` 版本号用于拒绝旧缓存。
 3. `slash-command/suggestion.tsx` 和 `slash-menu.tsx`：插入入口及文案。
 4. `mobile-writing-toolbar.tsx`：触屏入口。
-5. `messages/*.json`：新增 `editor.htmlEmbed` 与斜杠菜单文案。
+5. `messages/en.json` / `messages/zh.json`：新增 `editor.htmlEmbed` 与斜杠菜单文案；其他界面语言跟随上游语言插件，缺失的扩展文案走既有回退机制。
 6. `streamdown-renderer.tsx`：注册 `remarkHtmlEmbedFiles`，只读视图和导出显示文件引用文本。
 
 升级上游时优先检查这些接入点。`dev` 用于跟踪上游，本功能在 `codex/html-embed`；将更新后的 `dev` 合并到功能分支，保留独立模块，不覆盖整个目录或重置功能分支。
@@ -104,3 +104,7 @@ v2 已通过类型检查、相关 ESLint、Markdown/后台 lexer 往返、路径
 - 升级 Tiptap、解析器或上游编辑器后，重点复核本文的宿主接入点、worker 版本/注册顺序及复制、导出路径。
 - 当前首要工作是 iOS/Android 真机验收及 Tauri iframe 隔离专项检查；不要将 macOS 文件读取通过理解为所有平台已完成验收。
 - 演示笔记、独立 HTML 和打包应用属于本机运行数据，不随仓库提交；其他机器需自行生成演示数据并重新构建。
+
+### 2026-11-03 上游 Wiki / 列表兼容
+
+合并上游 `5dd1eae8` 后，WikiMetadata、上游 MarkdownOrderedList 与 HTML Embed 共存；声明顺序必须和 `markdown-tokenizers.ts` 一致。lexer 协议已升到 5，不能退回 3/4。普通 fixture 已使用组合解析配置；提供外部 jsdom 时还会执行真实 worker、Wiki/列表嵌入往返、AI 局部修改、文档切换、语言回退和实际导出/来源链接刷新检查。原 Node View 运行状态保留与异步文件取消回归仍保留。所有检查已本地通过，但不代表 Wiki 全部业务功能或移动真机已验收。

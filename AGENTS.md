@@ -11,7 +11,7 @@ If there is no `.codegraph/`, skip CodeGraph. Do not initialize or refresh an in
 
 # NoteGen 开发与 AI 交接说明
 
-更新于 2026-10-31。新对话先读本文件及 [HTML Embed 模块说明](src/extensions/html-embed/README.md)，再检查实际 Git 状态；不要仅凭交接文字假定功能已经发布或平台已验收。
+更新于 2026-11-03。新对话先读本文件及 [HTML Embed 模块说明](src/extensions/html-embed/README.md)，再检查实际 Git 状态；不要仅凭交接文字假定功能已经发布或平台已验收。
 
 ## 仓库与工作方式
 
@@ -19,7 +19,7 @@ If there is no `.codegraph/`, skip CodeGraph. Do not initialize or refresh an in
 - fork：<https://github.com/TheFBplus/note-gen>，远端 `origin`。
 - 上游：<https://github.com/codexu/note-gen>，远端 `upstream`。
 - 本机目录：`/Volumes/Projects/Projects/Typescript/note-gen`；其他机器应以实际仓库根目录为准。这与 Unity TitanGame 无关。
-- 当前功能分支：`codex/html-embed`，开发基线已合并至上游 `dev` 的 `20c50087`（NoteGen 0.39.1）。提交、推送及领先/落后情况以实际 Git 为准。
+- 当前功能分支：`codex/html-embed`，开发基线已合并至上游 `dev` 的 `5dd1eae8`（NoteGen 0.39.2，含发布后的 dev 改动）。提交、推送及领先/落后情况以实际 Git 为准。
 - `dev` 用于同步上游；功能分支保存扩展。升级时先更新 `dev`，再合并到功能分支，解决冲突并验证。不要用覆盖目录、强制重置或强制推送替代正常合并。
 - 开工必查 `git status --short --branch`、`git branch -vv`、`git remote -v`，保留现有改动。用户已授权本次实现的提交与推送，不代表未来可以自动提交、推送、合并或发布。
 - `AGENTS.md` 已作为项目交接文件纳入版本控制；更新关键设计、实现和验证结果时同步维护。不要写入凭据或完整个人设置。
@@ -89,7 +89,7 @@ v2 文件引用（围栏正文为空）：
 | `src/extensions/html-embed/remark.ts` | 只读视图及 HTML/PDF 的文件引用降级 |
 | `src/app/core/main/editor/markdown/tiptap-editor.tsx` | 注册扩展、提供笔记路径/来源上下文、手机插入动作 |
 | `src/app/core/main/editor/markdown/markdown-tokenizers.ts` | 主线程及后台 lexer 的相同 tokenizer 注册顺序 |
-| `src/app/core/main/editor/markdown/markdown-lexer-protocol.ts` | worker 缓存协议版本，目前为 4 |
+| `src/app/core/main/editor/markdown/markdown-lexer-protocol.ts` | worker 缓存协议版本，目前为 5 |
 | `src/app/core/main/editor/markdown/slash-command/` | 插入菜单及翻译接入 |
 | `src/app/core/main/editor/markdown/mobile-writing-toolbar.tsx` | 手机触屏插入入口 |
 | `src/components/markdown/streamdown-renderer.tsx` | 注册惰性的文件引用 remark 插件 |
@@ -154,6 +154,11 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 
 
 ## 定制版云端构建（2026-10-30 配置）
+
+2026-11-03 上游兼容合并：正常合并 `5dd1eae8`，保留上游 Wiki 元数据、Markdown 列表/AI 编辑修复及来源链接，同时注册 HTML Embed；编辑器和主/后台 lexer 的 tokenizer 顺序一致，协议升至 5，拒绝原上游 3 与定制 4 的缓存。顺应上游语言插件迁移删除德/日/葡/繁中整份旧语言文件，保留中英扩展文案；已安装其他语言插件缺自定义文案时通过上游机制回退英文。不恢复旧语言文件，不额外引入语言加载补丁。
+
+新增 `scripts/html-embed-upstream-schema.ts` 使用与生产相同的解析扩展顺序；普通 fixture 改用该组合配置。可选 DOM fixture 自动执行 Wiki/嵌套有序列表与内联/v2 文件嵌入往返、真正 worker 入口与主线程一致性、协议/注册顺序拒绝、AI 编辑前后嵌入与 Wiki 身份保留、切换文档清除旧标记、语言插件回退。`html-embed-export-cases.ts` 执行真实 HTML/PDF 共用导出渲染并验证源码/路径惰性，以及来源上下文变化时真实 Streamdown 链接刷新；仅测试环境隔离路由和 CSS，不改生产导出清理。已通过全量 Embed 普通/DOM/React/组合/导出回归、普通 Markdown fixture、33 项云端控制面/更新渠道/上游提醒测试、更新 store 原生边界模拟、类型检查、相关 ESLint、actionlint 与定制前端生产构建。手机真机、跨版本自动安装和新版 Wiki 业务流程仍需另行验收；本轮不启动云端打包。
+
 
 2026-10-31 上游合并：将 `upstream/dev` 的 `20c50087` 正常合并到功能分支，解决 `mobile-me-sheet.tsx` 冲突；保留上游的 `active` 参数、`usePathname`、同步状态与返回恢复逻辑，以及定制更新提醒。`IS_CUSTOM_BUILD` 导入移入导入区，避免紧邻函数声明产生无谓冲突。已通过冻结依赖安装、类型检查、相关 ESLint、HTML Embed 普通/DOM/React 与原 Markdown 回归、19+7+7 项云端控制面/渠道/提醒测试、更新 store 模拟原生边界检查、actionlint 和定制前端生产构建；没有通过覆盖文件、强制重置或强制推送处理。此次更新不启动新的云端打包。
 

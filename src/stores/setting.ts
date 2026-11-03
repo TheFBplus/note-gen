@@ -589,6 +589,11 @@ const useSettingStore = create<SettingState>((set, get) => ({
   initSettingData: (options) => withSettingsHydration(async () => {
     const store = await Store.load('store.json');
     if (!options?.hydrateOnly) {
+      // Detect existing RAG users before first-run defaults install an embedding model.
+      const { initializeWikiPreferences } = await import('@/lib/wiki/settings')
+      await initializeWikiPreferences()
+    }
+    if (!options?.hydrateOnly) {
       const { restoreManagedWorkspaceSettings } = await import('@/lib/managed-workspace')
       await restoreManagedWorkspaceSettings(store)
     }
@@ -925,10 +930,10 @@ const useSettingStore = create<SettingState>((set, get) => ({
       }
     }
 
-    // Migrate previous built-in chat choices to the single Limited entry.
+    // Migrate previous built-in chat choices to the single NoteGen chat entry.
     for (const field of ['primaryModel', 'editorModel', 'placeholderModel', 'imageMethodModel', 'completionModel', 'markDescModel', 'commitModel']) {
       const selected = await store.get<string>(field)
-      if (selected && (selected.startsWith('note-gen-limited') || selected.startsWith('note-gen-free-note-gen-limited') || selected === 'note-gen-vlm' || selected === 'note-gen-free-note-gen-vlm')) {
+      if (selected && (selected.startsWith('note-gen-limited') || selected.startsWith('note-gen-free-note-gen-limited') || selected === 'note-gen-free-chat' || selected === 'note-gen-free-note-gen-free-chat' || selected === 'note-gen-vlm' || selected === 'note-gen-free-note-gen-vlm')) {
         await store.set(field, 'note-gen-chat')
         set({ [field]: 'note-gen-chat' })
       }

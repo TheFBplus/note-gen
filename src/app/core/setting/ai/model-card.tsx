@@ -1,5 +1,4 @@
 'use client'
-import { useNoteGenLimitedUsage } from '@/hooks/use-notegen-limited-usage'
 import { NoteGenModelLabel } from '@/components/notegen-model-label'
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
@@ -85,7 +84,6 @@ export default function ModelCard({
   onUpdate,
   onDelete,
 }: ModelCardProps) {
-  const { detail: limitedDetail, activeModelName: limitedName } = useNoteGenLimitedUsage()
   const t = useTranslations('settings.ai')
   const tc = useTranslations('common')
   const [checkState, setCheckState] = useState<'ok' | 'error' | 'checking' | 'init'>('init')
@@ -253,7 +251,7 @@ export default function ModelCard({
           >
             <div className="flex min-w-0 items-start justify-between gap-3">
               <CardTitle className="min-w-0 flex-1 break-words text-base font-semibold">
-                <NoteGenModelLabel model={modelConfig.model || t('newModel')} builtin={aiConfig.key === 'note-gen-free'} limitedName={limitedName} limitedDetail={limitedDetail} />
+                <NoteGenModelLabel model={modelConfig.model || t('newModel')} builtin={aiConfig.key === 'note-gen-free'} />
               </CardTitle>
               <div onClick={(event) => event.stopPropagation()}>
                 <CollapsibleTrigger asChild>
@@ -302,7 +300,7 @@ export default function ModelCard({
             onClick={() => onOpenChange(!open)}
           >
             <CardTitle className="flex min-w-0 items-center gap-2">
-              <span className="truncate"><NoteGenModelLabel model={modelConfig.model || t('newModel')} builtin={aiConfig.key === 'note-gen-free'} limitedName={limitedName} limitedDetail={limitedDetail} /></span>
+              <span className="truncate"><NoteGenModelLabel model={modelConfig.model || t('newModel')} builtin={aiConfig.key === 'note-gen-free'} /></span>
               <Badge variant="secondary">
                 {t(`modelType.${modelConfig.modelType}`)}
               </Badge>

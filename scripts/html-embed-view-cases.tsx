@@ -30,7 +30,7 @@ function Harness() {
   editor = useEditor({ immediatelyRender: false, extensions: [StarterKit, extension], content: {
     type: 'doc', content: [{ type: 'htmlEmbed', attrs: { file: './demo.html', height: 300 } }],
   } })
-  return <NextIntlClientProvider locale="en" messages={messages}><EditorContent editor={editor} /></NextIntlClientProvider>
+  return <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}><EditorContent editor={editor} /></NextIntlClientProvider>
 }
 const container = document.createElement('div')
 document.body.append(container)

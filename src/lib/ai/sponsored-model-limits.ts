@@ -25,7 +25,7 @@ function isSponsoredConfig(config: AiRequestConfig): boolean {
 
 function isLimitedModel(model: string): boolean {
   const normalized = model.split('/').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || ''
-  return model === NOTEGEN_LIMITED_MODEL || model === 'NoteGen Limited'
+  return model === NOTEGEN_LIMITED_MODEL || model === NOTEGEN_FREE_MODEL || model === 'NoteGen Limited'
     || normalized.startsWith('gpt6luna') || normalized.startsWith('deepseekv4flash')
 }
 
@@ -61,7 +61,6 @@ export async function reserveSponsoredRequest(config: AiRequestConfig, body: unk
   if (!isSponsoredConfig(config)) return body
   if (!body || typeof body !== 'object' || !('model' in body) || typeof body.model !== 'string') return body
   const policy = await loadNoteGenModelPolicy()
-  if (body.model === NOTEGEN_FREE_MODEL) return applyResolvedModel(body as Record<string, unknown>, policy.free.model)
   if (!isLimitedModel(body.model)) return body
   await reservationQueue
   signal?.throwIfAborted()

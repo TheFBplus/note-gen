@@ -8,7 +8,8 @@ import { CurrentNodePlaceholder } from './current-node-placeholder'
 import { PendingEditorUploads, createUploadPlaceholder, trackEditorRange } from './async-editor-operations'
 import Link from '@tiptap/extension-link'
 import TaskList from '@tiptap/extension-task-list'
-import TaskItem from '@tiptap/extension-task-item'
+import { MarkdownListItem, MarkdownTaskItem } from './markdown-list-item'
+import { MarkdownOrderedList } from './markdown-ordered-list'
 import CharacterCount from '@tiptap/extension-character-count'
 import { ColorHighlight, TextColor, normalizeTextColor } from './color-marks'
 import Underline from '@tiptap/extension-underline'
@@ -34,6 +35,7 @@ import 'katex/dist/katex.min.css'
 import { InlineMath, BlockMath } from './math-extension'
 import { MermaidDiagram } from './mermaid-extension'
 import { HtmlEmbed, EMPTY_HTML_EMBED } from '@/extensions/html-embed/extension'
+import { WikiMetadata } from './wiki-metadata-extension'
 import { SearchReplacePanel } from './search-replace-panel'
 import { useEffect, useId, useLayoutEffect, useRef, useCallback, useMemo, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type UIEvent as ReactUIEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import { createPortal } from 'react-dom'
@@ -56,6 +58,8 @@ import { isMobileDevice } from '@/lib/check'
 import { pickImagesFromPhotoLibrary } from '@/lib/image-picker'
 import { useTranslations } from 'next-intl'
 import { replaceLinesInRange } from '@/lib/agent/react-diff-helpers'
+import { agentDebugLog } from '@/lib/agent/debug-log'
+import { buildAgentMarkdownEdit } from './agent-markdown-edit'
 import { BubbleMenu as BubbleMenuComponent } from './bubble-menu'
 import { ImageBubbleMenu } from './image-bubble-menu'
 import { toast } from '@/hooks/use-toast'
@@ -2819,6 +2823,8 @@ export function TipTapEditor({
       GitHubAlertBlockquoteEditor,
       StarterKit.configure({
         blockquote: false,
+        listItem: false,
+        orderedList: false,
         heading: {
           levels: [1, 2, 3, 4, 5, 6],
         },
@@ -2829,6 +2835,8 @@ export function TipTapEditor({
         dropcursor: false,
       }),
       MarkdownParagraph,
+      MarkdownListItem,
+      MarkdownOrderedList,
       PendingEditorUploads,
       CurrentNodePlaceholder.configure({
         placeholder: placeholderText,
@@ -2839,7 +2847,7 @@ export function TipTapEditor({
         protocols: ['file'],
       }),
       TaskList,
-      TaskItem.configure({
+      MarkdownTaskItem.configure({
         nested: true,
       }),
       StableCodeBlockLowlight.configure({
@@ -2880,6 +2888,7 @@ export function TipTapEditor({
       InlineMath,
       BlockMath,
       MermaidDiagram,
+      WikiMetadata,
       HtmlEmbed.configure({
         getDocumentPath: () => activeFilePathRef.current || '',
         subscribeDocumentChange: callback => {
@@ -7050,6 +7059,14 @@ export function TipTapEditor({
 
       const markdown = getCurrentMarkdownSnapshot()
       const text = isSourceView ? markdown : editor.getText()
+      agentDebugLog('editor_snapshot_emitted', {
+        filePath: activeFilePath,
+        sourceView: isSourceView,
+        ready: isReadyRef.current,
+        version: contentVersionRef.current,
+        charCount: markdown.length,
+        markdownTail: markdown.slice(-1000),
+      })
       const markdownLines = markdown.split('\n')
       const totalLines = markdownLines.length
       const lineNumberWidth = String(totalLines).length
@@ -7425,7 +7442,8 @@ export function TipTapEditor({
               return
             }
 
-            editor.commands.setContent(updatedMarkdown, { contentType: 'markdown' })
+            const updatedDoc = buildAgentMarkdownEdit(editor, currentMarkdown, updatedMarkdown)
+            editor.commands.setContent(updatedDoc.toJSON())
           } else {
             const $from = editor.state.doc.resolve(from)
             const $to = editor.state.doc.resolve(to)
@@ -7533,14 +7551,26 @@ export function TipTapEditor({
       from?: number
       to?: number
     }) => {
+      agentDebugLog('editor_diff_event_received', {
+        filePath,
+        activeFilePath,
+        hasEditor: Boolean(editor),
+        isSourceView,
+      })
       if (!editor || (filePath && activeFilePath && filePath !== activeFilePath)) {
         return
       }
 
-      editor.view.dispatch(editor.state.tr.setMeta(agentDiffPreviewPluginKey, {
-        type: 'show',
-        payload: { originalContent, modifiedContent, from, to },
-      }))
+      try {
+        editor.view.dispatch(editor.state.tr.setMeta(agentDiffPreviewPluginKey, {
+          type: 'show',
+          payload: { originalContent, modifiedContent, from, to },
+        }))
+      } catch (error) {
+        agentDebugLog('editor_diff_preview_failed', { filePath, error: String(error) })
+        toast({ description: String(error), variant: 'destructive' })
+        return
+      }
 
       window.requestAnimationFrame(() => {
         if (editor.isDestroyed || !scrollContainerRef.current) return

@@ -6,6 +6,7 @@ import type { JSONContent } from '@tiptap/core'
 import TaskItem from '@tiptap/extension-task-item'
 import TaskList from '@tiptap/extension-task-list'
 import { MarkdownManager } from '@tiptap/markdown'
+import { WikiMetadata } from './wiki-metadata-extension'
 import StarterKit from '@tiptap/starter-kit'
 import { renderMarkdownExportFragment } from '@/lib/markdown/export-document'
 import { checkIsTauri } from '@/lib/check'
@@ -14,6 +15,7 @@ import { convertImageByWorkspace } from '@/lib/utils'
 import { getFilePathOptions } from '@/lib/workspace'
 import { shouldTransformImageSrcToWorkspaceAsset } from './image-src'
 import { GitHubAlertBlockquote } from './github-alert-blockquote'
+import { MarkdownOrderedList } from './markdown-ordered-list'
 
 export type MarkdownExportFormat = 'markdown' | 'html' | 'json' | 'pdf'
 
@@ -250,9 +252,11 @@ function getMarkdownManager() {
     markdownManager = new MarkdownManager({
       extensions: [
         GitHubAlertBlockquote,
-        StarterKit.configure({ blockquote: false }),
+        StarterKit.configure({ blockquote: false, orderedList: false }),
+        MarkdownOrderedList,
         TaskList,
         TaskItem.configure({ nested: true }),
+        WikiMetadata,
       ],
       indentation: {
         style: 'space',

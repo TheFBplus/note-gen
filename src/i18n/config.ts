@@ -1,6 +1,6 @@
 import type { AbstractIntlMessages } from 'next-intl';
 
-export const SUPPORTED_LOCALES = ['en', 'zh', 'ja', 'pt-BR', 'zh-TW', 'de'] as const;
+export const SUPPORTED_LOCALES = ['en', 'zh'] as const;
 export type SupportedLocale = string;
 
 export const DEFAULT_LOCALE: SupportedLocale = 'zh';
@@ -45,32 +45,40 @@ export function mergeMessages(
 }
 
 export async function loadLocaleMessages(locale: SupportedLocale): Promise<AbstractIntlMessages> {
-  const [{ default: messages }, { default: commonMessages }] = await Promise.all([
-    import(`../../messages/${locale}.json`),
-    import(`../../messages/common/${locale}.json`),
-  ]);
-
-  return {
-    ...messages,
-    common: commonMessages,
+  // Keep the import map explicit so external language packs are never bundled.
+  const loaders = {
+    en: async () => {
+      const [{ default: messages }, { default: common }] = await Promise.all([
+        import('../../messages/en.json'),
+        import('../../messages/common/en.json'),
+      ]);
+      return { ...messages, common };
+    },
+    zh: async () => {
+      const [{ default: messages }, { default: common }] = await Promise.all([
+        import('../../messages/zh.json'),
+        import('../../messages/common/zh.json'),
+      ]);
+      return { ...messages, common };
+    },
   };
+  return loaders[locale === 'en' ? 'en' : 'zh']();
 }
 
 export async function loadMessagesWithFallback(
   locale: SupportedLocale
 ): Promise<AbstractIntlMessages> {
-  const builtin = (SUPPORTED_LOCALES as readonly string[]).includes(locale) ? locale : DEFAULT_LOCALE;
-  let messages = await loadLocaleMessages(builtin);
+  const chinese = await loadLocaleMessages(DEFAULT_LOCALE);
+  let messages = locale === DEFAULT_LOCALE
+    ? chinese
+    : mergeMessages(await loadLocaleMessages('en'), chinese);
+
   for (const [, languages] of [...pluginLanguages].sort(([a], [b]) => b.localeCompare(a))) {
-    for (const language of languages) if (language.locale === locale) messages = mergeMessages(language.messages, messages);
+    for (const language of languages) {
+      if (language.locale === locale) messages = mergeMessages(language.messages, messages);
+    }
   }
-
-  if (locale === DEFAULT_LOCALE) {
-    return messages;
-  }
-
-  const fallbackMessages = await loadLocaleMessages(DEFAULT_LOCALE);
-  return mergeMessages(messages, fallbackMessages);
+  return messages;
 }
 
 export const PLUGIN_LANGUAGES_CHANGED = 'notegen:languages-changed'
@@ -106,6 +114,8 @@ export async function validateLanguageOverrides(messages: AbstractIntlMessages) 
     for (const [key, value] of Object.entries(values)) {
       const original = base[key]
       if (typeof value === 'string') {
+        // Unchanged source literals (including Mermaid code) need no ICU parsing.
+        if (value === original) continue
         const actual = signature(value)
         if (original !== undefined && (typeof original !== 'string' || signature(original) !== actual)) throw new Error(`Translation placeholders do not match: ${key}`)
       } else {

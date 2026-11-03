@@ -15,8 +15,7 @@ import {
 } from "@/components/ui/drawer"
 import { cn } from "@/lib/utils"
 import { toast } from "@/hooks/use-toast"
-import { useNoteGenLimitedUsage } from '@/hooks/use-notegen-limited-usage'
-import { noteGenModelDisplayName } from '@/components/notegen-model-label'
+import { NoteGenModelLabel, noteGenModelDisplayName } from '@/components/notegen-model-label'
 import {
   changePrimaryChatModel,
   collectGroupedChatModels,
@@ -27,11 +26,9 @@ function ModelListContent({
   groupedByConfig,
   primaryModel,
   onSelect,
-  limitedName,
 }: {
   groupedByConfig: Record<string, GroupedChatModel[]>
   primaryModel?: string
-  limitedName: string
   onSelect: (modelId: string) => void
 }) {
   return (
@@ -54,7 +51,7 @@ function ModelListContent({
                 )}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="font-medium text-sm truncate">{noteGenModelDisplayName(item.model.model, item.configKey === 'note-gen-free', limitedName)}</div>
+                  <div className="font-medium text-sm truncate"><NoteGenModelLabel model={item.model.model} builtin={item.configKey === 'note-gen-free'} showFree /></div>
                 </div>
                 <div
                   className={cn(
@@ -76,7 +73,6 @@ function ModelListContent({
 }
 
 export function ModelSelector() {
-  const { activeModelName: limitedName } = useNoteGenLimitedUsage()
   const [groupedModels, setGroupedModels] = useState<GroupedChatModel[]>([])
   const [open, setOpen] = useState(false)
   const { primaryModel, aiModelList, initSettingData } = useSettingStore()
@@ -87,8 +83,8 @@ export function ModelSelector() {
   async function modelSelectChangeHandler(modelId: string) {
     const nextModel = groupedModels.find(item => item.model.id === modelId)
     const previousModel = groupedModels.find(item => item.model.id === primaryModel)
-    const nextName = noteGenModelDisplayName(nextModel?.model.model || modelId, nextModel?.configKey === 'note-gen-free', limitedName)
-    const previousName = noteGenModelDisplayName(previousModel?.model.model || primaryModel, previousModel?.configKey === 'note-gen-free', limitedName)
+    const nextName = noteGenModelDisplayName(nextModel?.model.model || modelId, nextModel?.configKey === 'note-gen-free')
+    const previousName = noteGenModelDisplayName(previousModel?.model.model || primaryModel, previousModel?.configKey === 'note-gen-free')
     const result = await changePrimaryChatModel({
       modelId,
       modelName: nextName,
@@ -132,7 +128,7 @@ export function ModelSelector() {
     && agentState.activeModelId !== primaryModel
   )
   const selectedModelLabel = selectedModel?.model.model || t('placeholder')
-  const selectedDisplayName = noteGenModelDisplayName(selectedModelLabel, selectedModel?.configKey === 'note-gen-free', limitedName)
+  const selectedDisplayName = noteGenModelDisplayName(selectedModelLabel, selectedModel?.configKey === 'note-gen-free')
   const displayedModelLabel = appliesNextTurn
     ? `${agentState.activeModelName || agentState.activeModelId} → ${selectedDisplayName}`
     : selectedDisplayName
@@ -159,7 +155,6 @@ export function ModelSelector() {
           </DrawerHeader>
           <div className="min-w-0 overflow-x-hidden p-4">
             <ModelListContent
-              limitedName={limitedName}
               groupedByConfig={groupedByConfig}
               primaryModel={primaryModel}
               onSelect={async (modelId) => {

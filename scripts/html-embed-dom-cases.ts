@@ -10,7 +10,7 @@ import { parseFencedCodeBlockToken, renderFencedCodeBlockNode } from '../src/app
 // 可选 DOM 测试依赖从仓库外提供，不修改应用依赖或锁文件。
 const { JSDOM } = await import(process.env.HTML_EMBED_DOM_MODULE!)
 const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://notegen.test' })
-for (const key of ['window', 'document', 'navigator', 'Node', 'HTMLElement', 'Element', 'MutationObserver', 'DOMParser', 'getComputedStyle']) {
+for (const key of ['window', 'document', 'navigator', 'Node', 'HTMLElement', 'Element', 'MutationObserver', 'DOMParser', 'getComputedStyle', 'Event', 'CustomEvent', 'localStorage', 'sessionStorage']) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] })
 }
 globalThis.requestAnimationFrame = callback => setTimeout(() => callback(0), 0) as unknown as number

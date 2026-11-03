@@ -20,7 +20,6 @@ import {
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { TooltipButton } from "@/components/tooltip-button"
-import { useNoteGenLimitedUsage } from '@/hooks/use-notegen-limited-usage'
 import { NoteGenModelLabel } from '@/components/notegen-model-label'
 
 interface GroupedModel {
@@ -34,18 +33,25 @@ export function ModelSelect({
   emptyLabel,
   clearTooltip,
   onValueChange,
+  value,
+  persistSelection = true,
 }: {
   modelKey: string
   emptyLabel?: string
   clearTooltip?: string
   onValueChange?: (model: string) => void | Promise<void>
+  value?: string
+  persistSelection?: boolean
 }) {
   const [groupedModels, setGroupedModels] = useState<GroupedModel[]>([])
   const { setCompletionModel, setEditorModel, setMarkDescModel, setPrimaryModel, setImageMethodModel, setAudioModel, setSttModel, setEmbeddingModel, setRerankingModel } = useSettingStore()
   const [model, setModel] = useState<string>('')
   const [open, setOpen] = React.useState(false)
   const t = useTranslations('settings.defaultModel')
-  const { detail: limitedDetail, activeModelName: limitedName } = useNoteGenLimitedUsage()
+
+  useEffect(() => {
+    if (value !== undefined) setModel(value)
+  }, [value])
 
   // 获取正确的存储键名
   function getStoreKey(modelKey: string): string {
@@ -170,6 +176,10 @@ export function ModelSelect({
     })
 
     setGroupedModels(models)
+    if (value !== undefined) {
+      setModel(value)
+      return
+    }
     
     const storeKey = getStoreKey(modelKey)
     const primaryModel = await store.get<string>(storeKey)
@@ -178,6 +188,11 @@ export function ModelSelect({
   }
 
   async function modelSelectChangeHandler(e: string) {
+    if (!persistSelection) {
+      await onValueChange?.(e)
+      if (value === undefined) setModel(e)
+      return
+    }
     setPrimaryModelHandler(e)
     const store = await Store.load('store.json');
     const storeKey = getStoreKey(modelKey)
@@ -187,6 +202,11 @@ export function ModelSelect({
   }
 
   async function resetDefaultModel() {
+    if (!persistSelection) {
+      await onValueChange?.('')
+      if (value === undefined) setModel('')
+      return
+    }
     const store = await Store.load('store.json');
     const storeKey = getStoreKey(modelKey)
     store.set(storeKey, '')
@@ -210,7 +230,7 @@ export function ModelSelect({
     const selectedItem = groupedModels.find(isModelSelected)
     
     if (selectedItem) {
-      if (selectedItem.configKey === 'note-gen-free') return <span className="truncate"><NoteGenModelLabel model={selectedItem.model.model} builtin limitedName={limitedName} limitedDetail={limitedDetail} /></span>
+      if (selectedItem.configKey === 'note-gen-free') return <span className="truncate"><NoteGenModelLabel model={selectedItem.model.model} builtin /></span>
       return `${selectedItem.model.model}(${selectedItem.configTitle})`
     }
     
@@ -262,7 +282,10 @@ export function ModelSelect({
           <CommandList>
             <CommandEmpty>No model found.</CommandEmpty>
             {Object.entries(groupedByConfig).map(([configTitle, models]) => (
-              <CommandGroup key={configTitle} heading={configTitle}>
+              <CommandGroup
+                key={configTitle}
+                heading={configTitle}
+              >
                 {models.map((item) => (
                   <CommandItem
                     key={item.model.id}
@@ -273,7 +296,7 @@ export function ModelSelect({
                       setOpen(false)
                     }}
                   >
-                    <NoteGenModelLabel model={item.model.model} builtin={item.configKey === 'note-gen-free'} limitedName={limitedName} limitedDetail={limitedDetail} />
+                    <NoteGenModelLabel model={item.model.model} builtin={item.configKey === 'note-gen-free'} showFree />
                   </CommandItem>
                 ))}
               </CommandGroup>
