@@ -17,7 +17,9 @@
     "ignore": "Ignore this version",
     "installing": "Installing update…",
     "downloading": "Downloading update…",
-    "keepOpen": "Keep the application open. Your notes will be saved before installation."
+    "keepOpen": "Keep the application open. Your notes will be saved before installation.",
+    "networkFailed": "Could not connect to custom updates. Check your connection and the system or manual proxy in General settings. Browser-only proxies do not cover the app; system mode needs a working device proxy. Retry or open the releases page.",
+    "proxyInvalid": "Invalid update proxy address. Check the HTTP, HTTPS or SOCKS5 proxy in General settings."
   },
   "editor": {
     "htmlEmbed": {

@@ -46,7 +46,7 @@ export function CustomBuildUpdates() {
         <Button variant="outline" onClick={() => { void open(CUSTOM_RELEASES_URL) }}>{t('download')}</Button>
       </div>
       <p className="text-sm text-muted-foreground">{t('manual')}</p>
-      {(state.error || openingError) && <p role="alert" className="break-all text-sm text-destructive">{state.error || openingError}</p>}
+      {(state.error || openingError) && <p role="alert" className="break-all text-sm text-destructive">{openingError || (state.errorKind ? t(state.errorKind === 'network' ? 'networkFailed' : 'proxyInvalid') : state.error)}</p>}
     </CardContent>
   </Card>
 }

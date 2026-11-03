@@ -9,6 +9,7 @@ import { fetch } from '@tauri-apps/plugin-http'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { Store } from '@tauri-apps/plugin-store'
 import { relaunch } from '@tauri-apps/plugin-process'
+import { resolveUpdateProxy, UpdateNetworkError, updateFailure } from './network'
 import { CUSTOM_UPDATE_URL, newerCustomVersion, parseCustomManifest, type CustomManifest } from './protocol'
 
 interface State {
@@ -18,6 +19,7 @@ interface State {
   update: Update | null
   status: 'idle' | 'checking' | 'ready' | 'downloading' | 'installing' | 'error'
   error: string
+  errorKind: 'network' | 'proxy' | null
   ignored: string
   progress: number | null
   hasUpdate: boolean
@@ -26,20 +28,40 @@ interface State {
   install: () => Promise<void>
 }
 let pending: Promise<void> | null = null
+// 原生 Update 保存检查时的代理供下载使用；不把带认证信息的地址放入 React 状态或磁盘。
+const updateProxies = new WeakMap<Update, string | undefined>()
+
+async function desktopUpdate(version: string, proxy: string | undefined) {
+  const os = platform()
+  if (os === 'windows' && arch() !== 'x86_64' || os === 'macos' && arch() !== 'aarch64') throw new Error('Unsupported custom update architecture')
+  const target = os === 'windows' ? await invoke<string>('get_desktop_update_target') : 'darwin-aarch64'
+  if (target !== 'windows-x86_64-nsis' && target !== 'darwin-aarch64') throw new Error('Unsupported custom installer')
+  const candidate = await check({ target, timeout: 10_000, proxy })
+  if (!candidate || candidate.version !== version) {
+    await candidate?.close().catch(() => {})
+    throw new Error('Update channel changed; please check again')
+  }
+  updateProxies.set(candidate, proxy)
+  return candidate
+}
 
 export const useCustomUpdates = create<State>((set, get) => ({
-  current: '', mobile: false, manifest: null, update: null, status: 'idle', error: '', ignored: '', progress: null, hasUpdate: false,
+  current: '', mobile: false, manifest: null, update: null, status: 'idle', error: '', errorKind: null, ignored: '', progress: null, hasUpdate: false,
   check: () => {
     if (pending) return pending
     if (['downloading', 'installing'].includes(get().status)) return Promise.resolve()
     pending = (async () => {
-      set({ status: 'checking', error: '' })
+      set({ status: 'checking', error: '', errorKind: null })
       let candidate: Update | null = null
       try {
         const current = await getVersion()
+        // 本地版本不依赖网络、代理或忽略设置读取成功。
+        set({ current })
         const storage = await Store.load('custom-updates.json')
         const ignored = await storage.get<string>('ignoredVersion') || ''
-        const response = await fetch(CUSTOM_UPDATE_URL, { headers: { Accept: 'application/json' }, cache: 'no-store', connectTimeout: 10_000 })
+        const proxy = await resolveUpdateProxy()
+        const response = await fetch(CUSTOM_UPDATE_URL, { headers: { Accept: 'application/json' }, cache: 'no-store', connectTimeout: 10_000,
+          ...(proxy ? { proxy: { all: proxy } } : {}) }).catch(() => { throw new UpdateNetworkError() })
         // 尚未发布第一个支持更新的版本时，渠道文件不存在属于正常情况。
         if (response.status === 404) {
           await get().update?.close()
@@ -51,12 +73,8 @@ export const useCustomUpdates = create<State>((set, get) => ({
         const newer = newerCustomVersion(manifest, current)
         const os = platform()
         if (newer && (os === 'windows' || os === 'macos')) {
-          if (os === 'windows' && arch() !== 'x86_64' || os === 'macos' && arch() !== 'aarch64') throw new Error('Unsupported custom update architecture')
-          const target = os === 'windows' ? await invoke<string>('get_desktop_update_target') : 'darwin-aarch64'
-          if (target !== 'windows-x86_64-nsis' && target !== 'darwin-aarch64') throw new Error('Unsupported custom installer')
-          // 原生 updater 再次读取固定渠道，并在安装前验证编译进应用的公钥。
-          candidate = await check({ target, timeout: 10_000 })
-          if (!candidate || candidate.version !== manifest.version) throw new Error('Update channel changed; please check again')
+          // 原生 updater 复查固定签名渠道；代理会保留在 Update 资源中供下载使用。
+          candidate = await desktopUpdate(manifest.version, proxy)
         }
         await get().update?.close()
         set({ current, ignored, mobile: os === 'android', manifest: newer ? manifest : null, update: candidate,
@@ -64,7 +82,7 @@ export const useCustomUpdates = create<State>((set, get) => ({
       } catch (error) {
         await candidate?.close().catch(() => {})
         await get().update?.close().catch(() => {})
-        set({ status: 'error', error: error instanceof Error ? error.message : String(error), hasUpdate: false, manifest: null, update: null })
+        set({ status: 'error', ...updateFailure(error), hasUpdate: false, manifest: null, update: null })
       } finally { pending = null }
     })()
     return pending
@@ -76,11 +94,19 @@ export const useCustomUpdates = create<State>((set, get) => ({
     set({ ignored: version, hasUpdate: Boolean(get().manifest && get().manifest?.version !== version) })
   },
   install: async () => {
-    const update = get().update
+    let update = get().update
     if (!update || ['downloading', 'installing'].includes(get().status)) return
-    set({ status: 'downloading', error: '', progress: null })
+    set({ status: 'downloading', error: '', errorKind: null, progress: null })
     try {
       if ((await getAllWebviewWindows()).some(window => window.label.startsWith('editor-'))) throw new Error('Close separate editor windows before updating')
+      const proxy = await resolveUpdateProxy()
+      // 检查后修改代理时，重新创建原生资源并绑定已展示版本，避免仍沿用旧代理下载或静默切换版本。
+      if (proxy !== updateProxies.get(update)) {
+        const replacement = await desktopUpdate(update.version, proxy)
+        await update.close().catch(() => {})
+        update = replacement
+        set({ update })
+      }
       let total = 0, received = 0
       await update.download(event => {
         if (event.event === 'Started') total = event.data.contentLength || 0
@@ -97,7 +123,7 @@ export const useCustomUpdates = create<State>((set, get) => ({
       await update.install()
       await relaunch()
     } catch (error) {
-      set({ status: 'error', error: error instanceof Error ? error.message : String(error) })
+      set({ status: 'error', ...updateFailure(error) })
     }
   },
 }))

@@ -14,18 +14,18 @@ const manifest = () => ({ version: '0.39.1-custom.3', notes: 'fixture', pub_date
   platforms: { 'windows-x86_64-nsis': { url: url + 'installer.exe', signature: 'signature' }, 'darwin-aarch64': { url: url + 'update.tar.gz', signature: 'signature' } },
   android: { url: url + 'NoteGen_android-arm64.apk', version_code: 1000000003, sha256: 'a'.repeat(64) } })
 const context = globalThis.__customTest = { os: 'macos', arch: 'aarch64', current: '0.39.1-custom.2',
-  status: 200, remote: manifest(), ignored: '', events: [], windows: [], failInstall: false }
-context.candidate = () => ({ version: context.remote.version, close: async () => {},
-  download: async (progress) => { context.events.push('download'); progress({ event: 'Started', data: { contentLength: 10 } }); progress({ event: 'Progress', data: { chunkLength: 10 } }) },
+  settings: { systemProxy: false, proxy: '' }, httpRequests: [], nativeChecks: [], downloads: [], failFetch: false, failNative: false, failDownload: false, candidateVersion: '', status: 200, remote: manifest(), ignored: '', events: [], windows: [], failInstall: false }
+context.candidate = (proxy) => ({ version: context.candidateVersion || context.remote.version, close: async () => { context.closed = (context.closed || 0) + 1 },
+  download: async (progress) => { context.downloads.push(proxy); if (context.failDownload) throw Error('error sending request for url'); context.events.push('download'); progress({ event: 'Started', data: { contentLength: 10 } }); progress({ event: 'Progress', data: { chunkLength: 10 } }) },
   install: async () => { context.events.push('install'); if (context.failInstall) throw Error('Signature verification failed') } })
 const mocks = {
   '@tauri-apps/api/app': 'export const getVersion = async () => c.current',
   '@tauri-apps/api/core': 'export const invoke = async () => { c.events.push("target"); return "windows-x86_64-nsis" }',
   '@tauri-apps/api/webviewWindow': 'export const getAllWebviewWindows = async () => c.windows',
   '@tauri-apps/plugin-os': 'export const platform = () => c.os; export const arch = () => c.arch',
-  '@tauri-apps/plugin-http': 'export const fetch = async url => { if (!url.includes("codex/custom-update-channel/latest.json")) throw Error("Official endpoint called"); c.events.push("fetch"); return {status:c.status,ok:c.status===200,json:async()=>structuredClone(c.remote)} }',
-  '@tauri-apps/plugin-updater': 'export const check = async options => { c.events.push("native-check:"+options.target); return c.candidate() }',
-  '@tauri-apps/plugin-store': 'export const Store = {load:async()=>({get:async()=>c.ignored,set:async(_,v)=>{c.ignored=v},save:async()=>{}})}',
+  '@tauri-apps/plugin-http': 'export const fetch = async (url, options) => { if (!url.includes("codex/custom-update-channel/latest.json")) throw Error("Official endpoint called"); c.events.push("fetch"); c.httpRequests.push(options); if(c.onFetch) c.onFetch(); if(c.fetchWait) await c.fetchWait; if(c.failFetch) throw Error("error sending request for url"); return {status:c.status,ok:c.status===200,json:async()=>structuredClone(c.remote)} }',
+  '@tauri-apps/plugin-updater': 'export const check = async options => { c.events.push("native-check:"+options.target); c.nativeChecks.push(options); if(c.failNative) throw Error("error sending request for url"); return c.candidate(options.proxy) }',
+  '@tauri-apps/plugin-store': 'export const Store = {load:async name=>({get:async key=>name==="store.json" ? c.settings[key] : c.ignored,set:async(_,v)=>{c.ignored=v},save:async()=>{}})}',
   '@tauri-apps/plugin-process': 'export const relaunch = async () => { c.events.push("relaunch") }',
   '@/stores/article': 'export default {getState:()=>({activeFilePath:"note.md",flushAllPendingArticleSaves:async()=>{c.events.push("flush-all")}})}',
   '@/lib/editor-deactivation': 'export const prepareActiveEditorDeactivationDurably = async () => {c.events.push("flush-active");return true}',
@@ -59,6 +59,7 @@ try {
   assert.equal(custom.getState().status, 'error')
   assert.ok(!context.events.includes('relaunch'))
   assert.match(custom.getState().error, /Signature/)
+  assert.equal(custom.getState().errorKind, null)
   context.failInstall = false; context.os = 'android'; context.events = []
   const mobileInfo = await main.getState().checkForMobileUpdates(context.current)
   assert.equal(mobileInfo.version, '0.39.1-custom.3')
@@ -85,13 +86,101 @@ try {
   for (const bad of [null, { ...manifest(), version: '0.39.1' }, { ...manifest(), android: { ...manifest().android, url: 'https://evil.example/app.apk' } }]) {
     assert.throws(() => parseCustomManifest(bad))
   }
+  // 首次网络失败也必须显示已安装版本；恢复后清除错误分类。
+  custom.setState({current: ''})
+  context.status = 200; context.failFetch = true
+  let releaseFetch
+  context.fetchWait = new Promise(resolve => { releaseFetch = resolve })
+  const requestStarted = new Promise(resolve => { context.onFetch = resolve })
+  const checking = custom.getState().check()
+  await requestStarted
+  assert.equal(custom.getState().status, 'checking')
+  assert.equal(custom.getState().current, context.current)
+  releaseFetch()
+  await checking
+  delete context.fetchWait; delete context.onFetch
+  assert.equal(custom.getState().current, context.current)
+  assert.equal(custom.getState().errorKind, 'network')
+  assert.equal(custom.getState().hasUpdate, false)
+  context.failFetch = false
+
+  // 系统模式忽略残留手动地址；新原生客户端自行发现系统代理。
+  context.settings = { systemProxy: true, proxy: 'file:///stale-proxy', proxyCustomURL: 'http://old:7890' }
+  await custom.getState().check()
+  assert.equal(custom.getState().errorKind, null)
+  assert.equal(context.httpRequests.at(-1).proxy, undefined)
+  assert.equal(context.nativeChecks.at(-1).proxy, undefined)
+
+  // 手动 HTTP/SOCKS 地址贯穿清单检查、原生检查及实际下载资源。
+  for (const proxy of ['127.0.0.1:7890', 'https://localhost:7891', 'socks5://127.0.0.1:1080', 'socks5h://127.0.0.1:1080']) {
+    context.settings = { systemProxy: false, proxy: ' ' + proxy + ' ' }
+    const expected = new URL(proxy.includes('://') ? proxy : 'http://' + proxy).href
+    await custom.getState().check()
+    assert.equal(context.httpRequests.at(-1).proxy.all, expected)
+    assert.equal(context.nativeChecks.at(-1).proxy, expected)
+    await custom.getState().install()
+    assert.equal(context.downloads.at(-1), expected)
+    custom.setState({status: 'ready'})
+  }
+  context.settings = { systemProxy: false, proxy: '' }
+  await custom.getState().check()
+  assert.equal(context.httpRequests.at(-1).proxy, undefined)
+  assert.equal(context.nativeChecks.at(-1).proxy, undefined)
+
+  // 检查后切换代理，下载资源必须刷新，不能继续使用旧地址。
+  context.settings.proxy = 'http://localhost:7892'
+  await custom.getState().install()
+  assert.equal(context.downloads.at(-1), 'http://localhost:7892/')
+  custom.setState({status: 'ready'})
+  context.settings.systemProxy = true
+  await custom.getState().install()
+  assert.equal(context.downloads.at(-1), undefined)
+  custom.setState({status: 'ready'})
+
+  // 代理变更后渠道也变更时拒绝下载；关闭不匹配的原生资源。
+  context.settings = {systemProxy: false, proxy: 'http://localhost:7893'}
+  context.candidateVersion = '0.39.1-custom.4'
+  const downloadsBefore = context.downloads.length, closedBefore = context.closed
+  await custom.getState().install()
+  assert.equal(context.downloads.length, downloadsBefore)
+  assert.equal(context.closed, closedBefore + 1)
+  assert.match(custom.getState().error, /channel changed/)
+  context.candidateVersion = ''
+  await custom.getState().check()
+  context.failDownload = true
+  const installsBefore = context.events.filter(e => e === 'install').length
+  await custom.getState().install()
+  assert.equal(custom.getState().errorKind, 'network')
+  assert.equal(context.events.filter(e => e === 'install').length, installsBefore)
+  context.failDownload = false
+  context.failNative = true
+  await custom.getState().check()
+  assert.equal(custom.getState().errorKind, 'network')
+  assert.equal(custom.getState().current, context.current)
+  context.failNative = false
+
+  // 无效代理不发送请求，且不回显填写的地址；不会偷偷回退为直连。
+  const requestsBefore = context.httpRequests.length
+  context.settings.proxy = 'file:///private-proxy'
+  await custom.getState().check()
+  assert.equal(context.httpRequests.length, requestsBefore)
+  assert.equal(custom.getState().errorKind, 'proxy')
+  assert.ok(!custom.getState().error.includes('private-proxy'))
+  context.settings.proxy = 'http://localhost:7890'
+  context.os = 'android'
+  const nativeBefore = context.nativeChecks.length
+  await custom.getState().check()
+  assert.equal(context.httpRequests.at(-1).proxy.all, 'http://localhost:7890/')
+  assert.equal(context.nativeChecks.length, nativeBefore)
+  assert.equal(custom.getState().errorKind, null)
+  assert.equal(custom.getState().hasUpdate, true)
   const normalFile = path.join(directory, 'normal.mjs')
   await build({ entryPoints: ['src/stores/update.ts'], bundle: true, packages: 'external', platform: 'node', format: 'esm', outfile: normalFile,
     define: { 'process.env.NEXT_PUBLIC_NOTEGEN_CUSTOM_BUILD': '"0"' } })
   const normal = await import(pathToFileURL(normalFile).href)
   assert.equal(normal.ANDROID_DOWNLOAD_URL, 'https://notegen.top/download')
   assert.equal(normal.IOS_TESTFLIGHT_URL, 'https://testflight.apple.com/join/8KjFRTCq')
-  console.log('Custom updates: channel isolation, native targets, ignore/restore, Android, 404/errors, install ordering and version validation passed.')
+  console.log('Custom updates: channel isolation, native targets, ignore/restore, Android, 404/errors, offline version display, system/manual proxy routing, proxy changes, download failures, install ordering and version validation passed.')
 } finally {
   delete globalThis.__customTest
   await rm(directory, { recursive: true, force: true })
