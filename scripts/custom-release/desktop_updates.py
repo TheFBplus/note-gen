@@ -43,7 +43,7 @@ def version_key(version):
     return tuple(map(int, match.groups()))
 
 
-def promote(args):
+def build_manifest(args):
     repo, metadata = repository(), load(args.metadata)
     directory = Path(args.destination)
     tag, version = metadata['tag'], metadata['version']
@@ -78,6 +78,13 @@ def promote(args):
                 'platforms': platforms,
                 'android': {'url': url(apk), 'version_code': metadata['android_version_code'], 'sha256': digest(apk)},
                 'release_url': f'https://github.com/{repo}/releases/tag/{quote(tag, safe="")}'}
+    return manifest
+
+
+def promote(args):
+    repo = repository()
+    manifest = build_manifest(args)
+    version = manifest['version']
     endpoint = f'repos/{repo}/contents/latest.json'
     stored = api('GET', endpoint + '?ref=' + quote(CHANNEL_BRANCH, safe=''))
     if stored:

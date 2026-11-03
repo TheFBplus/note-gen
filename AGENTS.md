@@ -207,3 +207,11 @@ GitHub 环境规则必须实际配置；`check-environment` 会提前核验 TheF
 新增 `src/extensions/custom-updates/network.ts`，统一读取常规设置 `systemProxy` / `proxy`，规范化手动代理并分类网络/代理错误；清单 fetch 与桌面 updater 使用相同代理。系统模式使用原生客户端发现，不保证浏览器专用代理或 Android 系统代理可发现；不改 Rust、上游设置 UI、能力或依赖。桌面 Update 保留代理供下载；检查后改变代理则复查同一个展示版本，渠道变化不静默换版本。Android 外部浏览器下载不受应用代理控制。当前版本读到后立即写入状态，联网挂起/失败均可显示；签名验证与安装前刷盘保持原有约束。新增文案仅修改独立扩展字典。
 
 本轮已通过更新 store 原生边界模拟（含网络挂起/失败、系统/手动代理、代理变更、渠道变更与签名拒绝）、TypeScript、相关 ESLint 及定制模式前端生产构建。Windows/Android 实际代理及跨版本安装未验收，本轮不启动云端构建。补充云端状态：此前已核对 custom-release 的完整审批/分支规则及五个 RELEASE_* 环境 Secrets，后续第 8 次构建已成功发布 0.39.2-custom.8；上段环境迁移未完成是当时状态，旧仓库级 Secrets 是否清理仍须另核对。本轮源码需要新包发布后才会生效，不能据本地验证声称旧安装版已修复。
+
+## 2026-11-03 自有服务器更新渠道
+
+主站 files.cheapface.top/notegen-updates，GitHub Raw/Release 备用；客户端校验仅放行该服务器版本目录与原 fork Release。定制 CI 覆盖 updater 同时配置主/备清单；普通构建配置未改。手动下载页由部署脚本生成，Android APK 同样使用服务器链接。
+
+`server_deploy.py` 通过固定主机公钥的 SFTP-only 账号向 /pub 上传，不执行远端 shell。版本目录不可覆盖、HTTPS SHA256 校验、远端发布锁及 POSIX 原子切换清单；拒绝降级和同版本变更。私钥位于仓库外 ~/.config/notegen-signing/notegen-deploy-ed25519，新增环境 Secret RELEASE_DEPLOY_SSH_KEY；公钥不是签名密钥，不能替换现有 APK/Tauri 私钥。`sign-packages` 经一次审批完成签名/GitHub发布/服务器上传/备用渠道推进，编译隔离保持；server_only_release 输入用于恢复现有 Release，不执行编译/重新签名，recover_release.py 校验 GitHub 资产摘要和固定桌面公钥。流程仍只有两个工作流，构建仍手动。
+
+本轮结果：53 项 Python 控制面/签名渠道/服务器事务与恢复/提醒测试、更新 store 原生边界回归、类型检查、相关 ESLint、actionlint、定制模式前端构建通过。真实 SFTP 初次拒绝公钥，经用户让宝塔修复后通过固定主机密钥登录、chroot 检查、临时文件上传、HTTPS SHA256、POSIX 覆盖式 rename；根目录及 .ssh 写入被拒绝。临时测试文件已删除，正式 latest.json 未触碰。GitHub custom-release 已核对第六个环境 Secret RELEASE_DEPLOY_SSH_KEY 存在；GitHub 不回显值，云端实际使用仍需首轮验证。未启动构建、未上传正式安装包/切换清单；旧包仍需一次过渡安装。只测本机上传不能代替 GitHub runner 到服务器连通性或三平台实际更新验收。

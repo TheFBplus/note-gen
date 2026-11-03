@@ -23,7 +23,7 @@ const mocks = {
   '@tauri-apps/api/core': 'export const invoke = async () => { c.events.push("target"); return "windows-x86_64-nsis" }',
   '@tauri-apps/api/webviewWindow': 'export const getAllWebviewWindows = async () => c.windows',
   '@tauri-apps/plugin-os': 'export const platform = () => c.os; export const arch = () => c.arch',
-  '@tauri-apps/plugin-http': 'export const fetch = async (url, options) => { if (!url.includes("codex/custom-update-channel/latest.json")) throw Error("Official endpoint called"); c.events.push("fetch"); c.httpRequests.push(options); if(c.onFetch) c.onFetch(); if(c.fetchWait) await c.fetchWait; if(c.failFetch) throw Error("error sending request for url"); return {status:c.status,ok:c.status===200,json:async()=>structuredClone(c.remote)} }',
+  '@tauri-apps/plugin-http': 'export const fetch = async (url, options) => { if (!url.includes("codex/custom-update-channel/latest.json") && url !== "https://files.cheapface.top/notegen-updates/latest.json") throw Error("Official endpoint called"); c.events.push("fetch"); c.httpRequests.push(options); c.endpoints = [...(c.endpoints || []), url]; if(c.failPrimary && url.startsWith("https://files.cheapface.top/")) throw Error("primary offline"); if(c.onFetch) c.onFetch(); if(c.fetchWait) await c.fetchWait; if(c.failFetch) throw Error("error sending request for url"); return {status:c.status,ok:c.status===200,json:async()=>structuredClone(c.remote)} }',
   '@tauri-apps/plugin-updater': 'export const check = async options => { c.events.push("native-check:"+options.target); c.nativeChecks.push(options); if(c.failNative) throw Error("error sending request for url"); return c.candidate(options.proxy) }',
   '@tauri-apps/plugin-store': 'export const Store = {load:async name=>({get:async key=>name==="store.json" ? c.settings[key] : c.ignored,set:async(_,v)=>{c.ignored=v},save:async()=>{}})}',
   '@tauri-apps/plugin-process': 'export const relaunch = async () => { c.events.push("relaunch") }',
@@ -174,6 +174,18 @@ try {
   assert.equal(context.nativeChecks.length, nativeBefore)
   assert.equal(custom.getState().errorKind, null)
   assert.equal(custom.getState().hasUpdate, true)
+  context.failPrimary = true; context.os = 'windows'; context.endpoints = []
+  await custom.getState().check()
+  assert.deepEqual(context.endpoints, ['https://files.cheapface.top/notegen-updates/latest.json', 'https://raw.githubusercontent.com/TheFBplus/note-gen/refs/heads/codex/custom-update-channel/latest.json'])
+  assert.equal(custom.getState().hasUpdate, true)
+  context.failPrimary = false
+  const hosted = manifest()
+  hosted.platforms['windows-x86_64-nsis'].url = 'https://files.cheapface.top/notegen-updates/releases/0.39.1-custom.3/NoteGen_windows-x64-setup.exe'
+  hosted.android.url = 'https://files.cheapface.top/notegen-updates/releases/0.39.1-custom.3/NoteGen_android-arm64.apk'
+  assert.equal(parseCustomManifest(hosted).version, hosted.version)
+  for (const bad of ['https://files.cheapface.top/other/app.apk', 'https://evil.example/notegen-updates/releases/0.39.1-custom.3/NoteGen_android-arm64.apk', 'http://files.cheapface.top/notegen-updates/releases/0.39.1-custom.3/NoteGen_android-arm64.apk']) {
+    assert.throws(() => parseCustomManifest({...hosted, android: {...hosted.android, url: bad}}))
+  }
   const normalFile = path.join(directory, 'normal.mjs')
   await build({ entryPoints: ['src/stores/update.ts'], bundle: true, packages: 'external', platform: 'node', format: 'esm', outfile: normalFile,
     define: { 'process.env.NEXT_PUBLIC_NOTEGEN_CUSTOM_BUILD': '"0"' } })

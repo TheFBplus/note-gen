@@ -7,7 +7,7 @@ import { platform } from '@tauri-apps/plugin-os'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
-import { CUSTOM_RELEASES_URL, IS_CUSTOM_BUILD } from '@/lib/custom-build'
+import { CUSTOM_RELEASES_URL, CUSTOM_GITHUB_RELEASES_URL, IS_CUSTOM_BUILD } from '@/lib/custom-build'
 import { useCustomUpdates } from './store'
 
 export function CustomBuildUpdates() {
@@ -44,6 +44,7 @@ export function CustomBuildUpdates() {
           void state.ignore(state.ignored === state.manifest?.version ? '' : state.manifest!.version).catch(error => setOpeningError(String(error)))
         }}>{t(state.ignored === state.manifest.version ? 'restore' : 'ignore')}</Button>}
         <Button variant="outline" onClick={() => { void open(CUSTOM_RELEASES_URL) }}>{t('download')}</Button>
+        <Button variant="outline" onClick={() => { void open(CUSTOM_GITHUB_RELEASES_URL) }}>{t('githubDownload')}</Button>
       </div>
       <p className="text-sm text-muted-foreground">{t('manual')}</p>
       {(state.error || openingError) && <p role="alert" className="break-all text-sm text-destructive">{openingError || (state.errorKind ? t(state.errorKind === 'network' ? 'networkFailed' : 'proxyInvalid') : state.error)}</p>}

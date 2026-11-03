@@ -1,6 +1,7 @@
 import { compareVersions } from '@/lib/version'
 
-export const CUSTOM_UPDATE_URL = 'https://raw.githubusercontent.com/TheFBplus/note-gen/refs/heads/codex/custom-update-channel/latest.json'
+export const CUSTOM_UPDATE_URL = 'https://files.cheapface.top/notegen-updates/latest.json'
+export const CUSTOM_UPDATE_FALLBACK_URL = 'https://raw.githubusercontent.com/TheFBplus/note-gen/refs/heads/codex/custom-update-channel/latest.json'
 export interface CustomManifest {
   version: string
   notes: string
@@ -18,8 +19,9 @@ export function isCustomDownload(value: unknown): value is string {
   if (typeof value !== 'string') return false
   try {
     const url = new URL(value)
-    return url.protocol === 'https:' && url.hostname === 'github.com' && !url.username && !url.password && !url.port
-      && url.pathname.startsWith('/TheFBplus/note-gen/releases/download/') && !url.search && !url.hash
+    return url.protocol === 'https:' && !url.username && !url.password && !url.port && !url.search && !url.hash
+      && (url.hostname === 'github.com' && url.pathname.startsWith('/TheFBplus/note-gen/releases/download/')
+        || url.hostname === 'files.cheapface.top' && /^\/notegen-updates\/releases\/\d+\.\d+\.\d+-custom\.\d+\/[A-Za-z0-9_.-]+$/.test(url.pathname))
   } catch { return false }
 }
 

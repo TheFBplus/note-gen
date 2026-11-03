@@ -19,7 +19,8 @@
     "downloading": "正在下载更新…",
     "keepOpen": "请保持应用打开，安装前会保存笔记。",
     "networkFailed": "无法连接定制更新服务。请检查设备网络，以及常规设置中的系统代理或手动代理。仅浏览器代理不会覆盖应用；系统模式需要设备实际配置可用的系统代理。可重试或打开下载页。",
-    "proxyInvalid": "更新代理地址无效，请在常规设置中检查 HTTP、HTTPS 或 SOCKS5 代理地址。"
+    "proxyInvalid": "更新代理地址无效，请在常规设置中检查 HTTP、HTTPS 或 SOCKS5 代理地址。",
+    "githubDownload": "GitHub 备用下载"
   },
   "editor": {
     "htmlEmbed": {

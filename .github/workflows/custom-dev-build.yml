@@ -4,6 +4,10 @@ run-name: Merge upstream dev and build custom NoteGen
 on:
   workflow_dispatch:
     inputs:
+      server_only_release:
+        description: '仅重试服务器发布：填写已有 Release tag；留空正常构建'
+        type: string
+        default: ''
       force:
         description: Rebuild even when this upstream/custom pair was published
         type: boolean
@@ -25,7 +29,7 @@ env:
 
 jobs:
   prepare:
-    if: github.repository == 'TheFBplus/note-gen' && github.ref == 'refs/heads/codex/html-embed'
+    if: github.repository == 'TheFBplus/note-gen' && github.ref == 'refs/heads/codex/html-embed' && inputs.server_only_release == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -91,6 +95,7 @@ jobs:
         run: |
           python3 ../automation/scripts/custom-release/test_pipeline.py
           python3 ../automation/scripts/custom-release/test_desktop_updates.py
+          python3 ../automation/scripts/custom-release/test_server_deploy.py
           node ../automation/scripts/custom-release/test-update-channel.mjs
           test_dir=$(mktemp -d)
           pnpm --dir "$test_dir" add jsdom@26 --ignore-scripts
@@ -215,20 +220,23 @@ jobs:
     needs: [prepare, desktop, android]
     environment: custom-release
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    permissions:
+      contents: write
+    timeout-minutes: 45
     steps:
-      - name: Require the five protected environment secrets after approval
+      - name: Require protected environment secrets after approval
         env:
           HAS_ANDROID_KEY: ${{ secrets.RELEASE_ANDROID_KEYSTORE_BASE64 != '' }}
           HAS_ANDROID_STORE_PASSWORD: ${{ secrets.RELEASE_ANDROID_KEYSTORE_PASSWORD != '' }}
           HAS_ANDROID_PASSWORD: ${{ secrets.RELEASE_ANDROID_KEY_PASSWORD != '' }}
           HAS_UPDATER_KEY: ${{ secrets.RELEASE_UPDATER_PRIVATE_KEY != '' }}
+          HAS_DEPLOY_KEY: ${{ secrets.RELEASE_DEPLOY_SSH_KEY != '' }}
           HAS_UPDATER_PASSWORD: ${{ secrets.RELEASE_UPDATER_KEY_PASSWORD != '' }}
         run: |
           python3 - <<'PY'
           import os
-          if any(os.environ[name] != 'true' for name in ['HAS_ANDROID_KEY', 'HAS_ANDROID_STORE_PASSWORD', 'HAS_ANDROID_PASSWORD', 'HAS_UPDATER_KEY', 'HAS_UPDATER_PASSWORD']):
-              raise SystemExit('Configure all five RELEASE_* secrets in the protected custom-release environment. See scripts/custom-release/README.md.')
+          if any(os.environ[name] != 'true' for name in ['HAS_ANDROID_KEY', 'HAS_ANDROID_STORE_PASSWORD', 'HAS_ANDROID_PASSWORD', 'HAS_UPDATER_KEY', 'HAS_UPDATER_PASSWORD', 'HAS_DEPLOY_KEY']):
+              raise SystemExit('Configure all six RELEASE_* secrets in the protected custom-release environment. See scripts/custom-release/README.md.')
           PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -299,35 +307,32 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  publish:
-    needs: [prepare, sign-packages]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: automation
-          persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: custom-build-metadata
-          path: metadata
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: custom-package-*
-          merge-multiple: true
-          path: packages
+      - name: Assemble the complete signed release
+        run: cp desktop-packages/* signing/*.sig packages/
       - name: Publish only the complete three-platform prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 automation/scripts/custom-release/pipeline.py publish --metadata metadata/build-info.json --destination packages
 
-  promote-channel:
-    needs: [prepare, publish]
+      - name: Install isolated SFTP publisher without deployment credentials
+        run: |
+          python3 -m venv "$RUNNER_TEMP/server-publisher"
+          "$RUNNER_TEMP/server-publisher/bin/pip" install --disable-pip-version-check paramiko==4.0.0
+      - name: Upload verified packages and atomically advance server channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_DEPLOY_SSH_KEY: ${{ secrets.RELEASE_DEPLOY_SSH_KEY }}
+        run: '"$RUNNER_TEMP/server-publisher/bin/python" automation/scripts/custom-release/server_deploy.py --metadata metadata/build-info.json --destination packages'
+      - name: Advance channel only after complete Release publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 automation/scripts/custom-release/pipeline.py promote-channel --metadata metadata/build-info.json --destination packages
+
+  republish-server:
+    if: github.repository == 'TheFBplus/note-gen' && github.ref == 'refs/heads/codex/html-embed' && inputs.server_only_release != ''
+    environment: custom-release
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -335,22 +340,38 @@ jobs:
         with:
           path: automation
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Install trusted verification and SFTP tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y minisign
+          python3 -m venv "$RUNNER_TEMP/server-publisher"
+          "$RUNNER_TEMP/server-publisher/bin/pip" install --disable-pip-version-check paramiko==4.0.0
+      - name: Restore and verify an existing Release without rebuilding or running it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.server_only_release }}
+        run: python3 automation/scripts/custom-release/recover_release.py --tag "$RELEASE_TAG" --destination packages --metadata metadata/build-info.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: custom-build-metadata
-          path: metadata
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: custom-package-*
-          merge-multiple: true
-          path: packages
-      - name: Advance channel only after complete Release publication
+          path: metadata/build-info.json
+          retention-days: 7
+      - name: Verify protection before uploading an existing Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 automation/scripts/custom-release/pipeline.py check-environment
+      - name: Publish existing signed packages to server
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_DEPLOY_SSH_KEY: ${{ secrets.RELEASE_DEPLOY_SSH_KEY }}
+        run: '"$RUNNER_TEMP/server-publisher/bin/python" automation/scripts/custom-release/server_deploy.py --metadata metadata/build-info.json --destination packages'
+      - name: Advance GitHub backup channel
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 automation/scripts/custom-release/pipeline.py promote-channel --metadata metadata/build-info.json --destination packages
 
   report:
-    needs: [prepare, validate, desktop, android, sign-packages, publish, promote-channel]
+    needs: [prepare, validate, desktop, android, sign-packages, republish-server]
     if: always() && github.repository == 'TheFBplus/note-gen' && github.ref == 'refs/heads/codex/html-embed'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -375,15 +396,15 @@ jobs:
           CUSTOM_NOTIFICATION_USER: ${{ vars.CUSTOM_NOTIFICATION_USER || github.repository_owner }}
           JOB_RESULTS: ${{ toJSON(needs) }}
           PREPARE_RESULT: ${{ needs.prepare.result }}
-          CHANGED: ${{ needs.prepare.outputs.changed }}
-          PUBLISH_RESULT: ${{ needs.promote-channel.result }}
+          CHANGED: ${{ inputs.server_only_release != '' && 'true' || needs.prepare.outputs.changed }}
+          PUBLISH_RESULT: ${{ inputs.server_only_release != '' && needs.republish-server.result || needs.sign-packages.result }}
         run: |
           if [ "$PREPARE_RESULT" = "success" ] && [ "$CHANGED" != "true" ]; then exit 0; fi
           args=()
           if [ "$PUBLISH_RESULT" = "success" ]; then args+=(--success); fi
           python3 automation/scripts/custom-release/pipeline.py notify --metadata metadata/build-info.json "${args[@]}"
       - name: Remove duplicate Actions packages after successful Release publication
-        if: needs.promote-channel.result == 'success'
+        if: needs.sign-packages.result == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 automation/scripts/custom-release/pipeline.py cleanup-artifacts --metadata metadata/build-info.json

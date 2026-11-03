@@ -10,6 +10,20 @@
 
 不构建 Intel Mac、Windows ARM、Android ARMv7/x86 或 iOS。不使用付费 Larger runners。标准 runner 对公开仓库的计算运行免费，Actions 产物和缓存仍有独立额度；请在 GitHub Billing 检查实际用量和预算。本流程仅缓存 Rust 下载与 pnpm 依赖；发布成功后清理重复的安装包 Artifact，失败时保留有限天数供排查。
 
+## 自有服务器渠道（2026-11-03）
+
+主地址：`https://files.cheapface.top/notegen-updates/latest.json`。手动下载首页为同域 `/notegen-updates/`，由发布脚本生成；GitHub Raw 清单和 GitHub Release 保留备用。客户端只允许这两个固定来源的包地址，不开放任意镜像。普通构建仍使用上游渠道；现有旧包需一次过渡安装，才能使用新地址。
+
+服务器为 SFTP-only：`notegen-deploy@files.cheapface.top:22`，chroot 下 `/pub` 对应网站可写发布根。部署脚本不执行远端 shell，不要求 sudo、rsync 或宝塔 API Key；固定 ED25519 主机公钥保存在 `deploy-known-hosts`，必须拒绝未知或变化的主机密钥。部署私钥独立于 APK/Tauri 签名私钥，在 `custom-release` 环境新增第六个 Secret `RELEASE_DEPLOY_SSH_KEY`。只填写本机仓库外生成的独立部署私钥全文，公钥安装在服务器指定 authorized_keys，不重新生成签名密钥。
+
+正常构建保持仅手动启动、一次审批：三平台编译完成 → 批准 `sign-packages` → 签名并验证 → 发布 GitHub Release → SFTP 上传服务器 → HTTPS 逐文件 SHA256 校验 → 原子切换服务器清单 → 推进 GitHub 备用渠道 → 通知。受保护任务只运行启动分支的可信自动化，不运行候选源码；各私钥只注入对应步骤。GitHub token 的写权限也只用于可信发布任务。
+
+服务器每个版本使用独立目录 `releases/<版本>/`，先上传隐藏暂存目录再重命名，不覆盖已存在版本；相同版本重试只校验复用原文件。HTTPS 文件全部校验后，使用 OpenSSH `posix-rename` 原子替换 `latest.json`，不先删旧清单。拒绝版本倒退、Android versionCode 不递增及同版本改写；失败保留已发布版本和旧清单。并发由远端 `.notegen-release-lock` 互斥，异常终止遗留锁时需管理员核对无活动发布后处理，不自动抢锁。正式清单未切换前的失败不会推进客户端渠道；切换后的 HTTPS 校验失败会报告，重试可恢复。
+
+上传失败后不要重新签名/覆盖已有 GitHub Release。在同一个 **Custom dev packages** 手动入口填写 `server_only_release` 为已发布的完整 Release tag（不是版本号），`force` 不勾选：该模式只下载现有 Release、校验 GitHub 资产摘要和固定公钥的桌面签名，经一次审批后重试服务器发布与备用渠道；不合并、不编译、不重新签名、不执行包。正常构建必须将此输入留空。若服务器已发布更新版本，旧版本恢复会拒绝降级。
+
+GitHub 为必需的备份/来源记录，上传服务故障时包可能已在 GitHub 发布，但服务器清单保持旧版本；成功状态需要服务器与 GitHub 渠道步骤均完成。服务器历史版本不自动清理。部署账号限制与 HTTPS 首次安装、Windows/Android 真机更新仍需实际验收。
+
 ## 首次启用
 
 本配置需要提交并推送后才会出现在 GitHub；仅有本地文件不会运行云端任务。
@@ -18,7 +32,7 @@
 2. 仓库 Settings → General → Default branch：设为 **`codex/html-embed`**。这使该分支上的工作流具备手动/定时入口；`dev` 仍保持同步上游的用途。不要为启用定时任务把功能文件覆盖到 `dev`。
 3. Settings → General → Features：启用 **Issues**。fork 默认可能未启用，失败报告需要它。
 4. Actions 页面：如果提示 fork 的工作流被禁用，启用工作流。确认仓库策略允许配置中固定 SHA 的 GitHub 官方及 Android/pnpm Actions。工作流会按任务申请最小必要权限，组织策略也必须允许这些写操作。
-5. 按下方“受保护发布环境”配置审批、分支限制及五个 Environment Secrets。缺少保护规则时预检查停止；密钥缺失会在批准后的签名任务失败，不会生成临时密钥顶替。
+5. 按下方“受保护发布环境”配置审批、分支限制及五个签名 Environment Secrets，再按服务器渠道说明添加第六个部署 Secret。缺少保护规则时预检查停止；密钥缺失会在批准后的签名任务失败，不会生成临时密钥顶替。
 6. Actions → **Custom dev packages** → **Run workflow**，选择 `codex/html-embed`。首次不勾选 force。
 7. 在账号通知设置中启用 Actions 失败通知，并关注仓库中的失败 Issue。
 
@@ -27,7 +41,7 @@
 
 ## 受保护发布环境（2026-11-03）
 
-工作流保持仅手动启动。合并冲突、测试失败或任一平台构建失败即停止；三平台完成后，一个 `sign-packages` 任务等待 `custom-release` 环境批准，批准一次才签名 Android 和桌面更新包，随后发布并推进渠道。签名任务只检出本轮启动时的可信功能分支自动化，不检出或执行候选源码；私钥仅传给对应签名步骤，不传给工具安装或编译步骤。
+工作流保持仅手动启动。合并冲突、测试失败或任一平台构建失败即停止；三平台完成后，一个 `sign-packages` 任务等待 `custom-release` 环境批准，批准一次才签名 Android 和桌面更新包，随后发布、上传服务器并推进两个渠道。签名任务只检出本轮启动时的可信功能分支自动化，不检出或执行候选源码；私钥仅传给对应签名步骤，不传给工具安装或编译步骤。
 
 在 Settings → Environments → `custom-release` 配置：
 
@@ -127,7 +141,7 @@ macOS 使用 `macos-15`，显式指定 `--bundles app,dmg` 保留 `.app` 供主�
 发布顺序：三平台与签名全部成功 → 草稿上传并校验所有文件 → 公开定制 Prerelease → 独立 `promote-channel` 任务将完整清单写入 `codex/custom-update-channel` 分支的 `latest.json`。更新渠道分支不是源码构建来源，不改变功能分支；文件通过 raw.githubusercontent.com 固定 HTTPS 地址读取，不依赖 `/releases/latest`。
 
 - 渠道一次写入 Windows、macOS、Android 全部信息，下载 URL 固定到本次 Release。不完整/草稿 Release 不推进渠道；版本和 Android versionCode 必须递增，默认禁止降级。
-- 渠道写入失败时包可能已发布，应用仍看旧渠道；Actions 报错并保留包 Artifact。使用 **Re-run failed jobs** 重试独立的 `promote-channel`，不重新发布包。成功后才清理重复 Artifact 和关闭故障 Issue。
+- 渠道写入失败时包可能已发布，应用仍看旧渠道；Actions 报错并保留包 Artifact。使用手动入口的 `server_only_release` 模式恢复已发布版本，不重新编译或覆盖 Release。成功后才清理重复 Artifact 和关闭故障 Issue。
 - 应用启动和设置页可检查更新；无渠道（404）视为暂无更新，网络/清单错误显示错误。检查失败不访问官方渠道。可以忽略版本和恢复提醒，设置独立保存。
 - 桌面下载后验证更新签名，刷盘保存当前笔记及待保存队列，再安装并重启。下载/安装期间主窗口显示阻止编辑的进度对话框；有独立编辑窗口时要求先关闭。Windows 只支持当前定制 NSIS x64 安装，不回退到 MSI。macOS 更新文件为 `.app.tar.gz`，不是 DMG。
 - Android 的“我的”页始终显示定制更新卡片，发现新版本后打开该版本的具体 APK 链接，由系统确认安装，不静默安装、不新增安装权限。必须复用既有固定 Android 签名。
@@ -189,3 +203,5 @@ Tauri Update 原生资源保存检查时的代理，后续下载沿用它；如�
 本地版本在 `getVersion()` 成功后立即显示，不再依赖联网完成；请求失败保留版本，显示可重试的中英文网络提示，无效代理不回退为直连，不放宽 HTTPS 或固定公钥验证。系统模式仍要求设备配置原生客户端可发现的代理；浏览器扩展/浏览器专用 VPN 不会自动变成设备代理，Android 的支持也依赖平台。可使用 VPN 提供的应用可访问手动代理地址或覆盖 NoteGen 的设备隧道。
 
 回归覆盖网络挂起/失败时版本显示、系统模式忽略旧地址、手动 HTTP/HTTPS/SOCKS 传递、检查后切换代理、渠道变化拒绝下载、无效代理、原生检查/下载错误、签名失败不重启及 Android 不调用桌面 updater。模拟边界不能代替 Windows/Android 实际代理与跨版本安装验收。
+
+2026-11-03 接入实测：站点 HTTPS 和 health.txt 正常，未发布的正式清单返回 404；SFTP 固定主机密钥、公钥认证、chroot 边界、/pub 临时上传、HTTPS 内容与原子覆盖重命名通过，根与 .ssh 写入拒绝。测试文件已清理，未发布假清单或正式安装包。六个环境 Secret 名称已核对；云端首次发布和客户端过渡安装仍待验收。

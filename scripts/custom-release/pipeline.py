@@ -165,7 +165,7 @@ def configure(args):
                    'macOS': {'bundleVersion': str(metadata['run_number']), 'signingIdentity': '-'}},
         'plugins': {'updater': {
             'pubkey': Path(__file__).with_name('updater-public-key.txt').read_text().strip(),
-            'endpoints': ['https://raw.githubusercontent.com/TheFBplus/note-gen/refs/heads/codex/custom-update-channel/latest.json']}},
+            'endpoints': ['https://files.cheapface.top/notegen-updates/latest.json', 'https://raw.githubusercontent.com/TheFBplus/note-gen/refs/heads/codex/custom-update-channel/latest.json']}},
     })
 
 

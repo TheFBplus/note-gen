@@ -84,7 +84,8 @@ class PipelineTests(unittest.TestCase):
     def test_release_secrets_are_only_used_after_all_builds_and_approval(self):
         workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/custom-dev-build.yml').read_text()
         before, signing = workflow.split('  sign-packages:', 1)
-        signing, after = signing.split('  publish:', 1)
+        signing, after = signing.split('  republish-server:', 1)
+        after = after.split('  report:', 1)[1]
         self.assertNotIn('secrets.', before)
         self.assertNotIn('secrets.', after)
         self.assertIn('environment: custom-release', signing)
@@ -196,7 +197,7 @@ class PipelineTests(unittest.TestCase):
         overlay = p.load(source / 'src-tauri/tauri.custom-ci.json')
         self.assertFalse(overlay['bundle']['createUpdaterArtifacts'])
         self.assertEqual(overlay['bundle']['macOS']['signingIdentity'], '-')
-        self.assertEqual(overlay['plugins']['updater']['endpoints'], ['https://raw.githubusercontent.com/TheFBplus/note-gen/refs/heads/codex/custom-update-channel/latest.json'])
+        self.assertEqual(overlay['plugins']['updater']['endpoints'], ['https://files.cheapface.top/notegen-updates/latest.json', 'https://raw.githubusercontent.com/TheFBplus/note-gen/refs/heads/codex/custom-update-channel/latest.json'])
         self.assertEqual(overlay['plugins']['updater']['pubkey'], Path(p.__file__).with_name('updater-public-key.txt').read_text().strip())
         self.assertEqual(overlay['bundle']['android']['versionCode'], 1000000042)
         self.assertEqual((source / 'src-tauri/tauri.conf.json').read_bytes(), original)

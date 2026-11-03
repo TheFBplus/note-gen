@@ -10,7 +10,7 @@ import { check, type Update } from '@tauri-apps/plugin-updater'
 import { Store } from '@tauri-apps/plugin-store'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { resolveUpdateProxy, UpdateNetworkError, updateFailure } from './network'
-import { CUSTOM_UPDATE_URL, newerCustomVersion, parseCustomManifest, type CustomManifest } from './protocol'
+import { CUSTOM_UPDATE_URL, CUSTOM_UPDATE_FALLBACK_URL, newerCustomVersion, parseCustomManifest, type CustomManifest } from './protocol'
 
 interface State {
   current: string
@@ -60,16 +60,26 @@ export const useCustomUpdates = create<State>((set, get) => ({
         const storage = await Store.load('custom-updates.json')
         const ignored = await storage.get<string>('ignoredVersion') || ''
         const proxy = await resolveUpdateProxy()
-        const response = await fetch(CUSTOM_UPDATE_URL, { headers: { Accept: 'application/json' }, cache: 'no-store', connectTimeout: 10_000,
-          ...(proxy ? { proxy: { all: proxy } } : {}) }).catch(() => { throw new UpdateNetworkError() })
-        // 尚未发布第一个支持更新的版本时，渠道文件不存在属于正常情况。
-        if (response.status === 404) {
+        // 主站不可达/尚未发布时才尝试 GitHub；格式错误的清单不被备用渠道掩盖。
+        let manifest: CustomManifest | null = null
+        let networkFailed = false
+        for (const endpoint of [CUSTOM_UPDATE_URL, CUSTOM_UPDATE_FALLBACK_URL]) {
+          let response
+          try {
+            response = await fetch(endpoint, { headers: { Accept: 'application/json' }, cache: 'no-store', connectTimeout: 10_000,
+              ...(proxy ? { proxy: { all: proxy } } : {}) })
+          } catch { networkFailed = true; continue }
+          if (response.status === 404) continue
+          if (!response.ok) { networkFailed = true; continue }
+          manifest = parseCustomManifest(await response.json())
+          break
+        }
+        if (!manifest) {
+          if (networkFailed) throw new UpdateNetworkError()
           await get().update?.close()
           set({ current, ignored, manifest: null, update: null, hasUpdate: false, status: 'ready' })
           return
         }
-        if (!response.ok) throw new Error(`Custom update request failed: ${response.status}`)
-        const manifest = parseCustomManifest(await response.json())
         const newer = newerCustomVersion(manifest, current)
         const os = platform()
         if (newer && (os === 'windows' || os === 'macos')) {

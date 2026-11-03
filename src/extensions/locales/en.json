@@ -19,7 +19,8 @@
     "downloading": "Downloading update…",
     "keepOpen": "Keep the application open. Your notes will be saved before installation.",
     "networkFailed": "Could not connect to custom updates. Check your connection and the system or manual proxy in General settings. Browser-only proxies do not cover the app; system mode needs a working device proxy. Retry or open the releases page.",
-    "proxyInvalid": "Invalid update proxy address. Check the HTTP, HTTPS or SOCKS5 proxy in General settings."
+    "proxyInvalid": "Invalid update proxy address. Check the HTTP, HTTPS or SOCKS5 proxy in General settings.",
+    "githubDownload": "GitHub backup download"
   },
   "editor": {
     "htmlEmbed": {
