@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { CUSTOM_RELEASES_URL, IS_CUSTOM_BUILD } from '@/lib/custom-build'
-import useUpdateStore from '@/stores/update'
 import { useCustomUpdates } from './store'
 
 export function CustomBuildUpdates() {
@@ -16,7 +15,6 @@ export function CustomBuildUpdates() {
   const state = useCustomUpdates()
   const [openingError, setOpeningError] = useState('')
   useEffect(() => { void state.check() }, [state.check])
-  useEffect(() => { useUpdateStore.getState().setHasUpdate(state.hasUpdate) }, [state.hasUpdate])
   const busy = ['checking', 'downloading', 'installing'].includes(state.status)
   const android = state.manifest?.android.url
   async function open(url: string) {

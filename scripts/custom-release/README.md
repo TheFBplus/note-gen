@@ -154,3 +154,7 @@ GitHub 启用状态（2026-10-30）：配置已推送，默认分支已切换为
 本机签名状态（2026-10-30）：固定密钥为 `~/.config/notegen-signing/notegen-custom.p12`，密码存于 macOS 钥匙串的 **NoteGen Android signing password**（service: `com.thefbplus.notegen.android-release`，account: `notegen-custom`）。没有创建明文密码文件；公共证书与指纹记录在同目录的 `certificate-info.json`。备份时应保留密钥和密码，不要把它们加入仓库。
 
 首次云端运行：https://github.com/TheFBplus/note-gen/actions/runs/41078996240 。启动后 prepare 和 credentials 成功，后续测试/编译/签名结果以该运行页面为准。
+
+### 扩展接入维护（2026-11-03）
+
+定制更新文案位于 `src/extensions/locales/`，由根布局扩展 Provider 补齐，不再写入上游 messages 字典。`src/extensions/custom-updates/host.ts` 订阅定制 store，将桌面/Android 提醒及忽略状态映射到宿主字段；手机个人面板使用上游原有判断，更新卡片只操作定制 store。普通构建不会连接适配器，官方更新渠道隔离仍由宿主更新入口保留。`test-update-channel.mjs` 覆盖无面板挂载时的提醒同步及忽略/恢复。

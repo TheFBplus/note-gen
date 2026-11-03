@@ -15,7 +15,7 @@ import { buildEmbedDocument } from './sandbox'
 import { getCurrentEditorWorkspaceRoot } from '@/lib/editor-deactivation'
 import { EmbedFileError, isEmbedFileReference, selectedEmbedReference } from './file-path'
 import { loadHtmlEmbedFile } from './file-source'
-import { DEFAULT_EMBED_HEIGHT, embedHeight, HTML_EMBED_EXAMPLE, MAX_EMBED_CHARACTERS } from './markdown'
+import { embedHeight, HTML_EMBED_EXAMPLE, MAX_EMBED_CHARACTERS } from './markdown'
 
 export interface HtmlEmbedOptions {
   getDocumentPath: () => string
@@ -245,4 +245,4 @@ export const HtmlEmbed = HtmlEmbedNode.extend<HtmlEmbedOptions>({
   },
 })
 
-export const EMPTY_HTML_EMBED = { type: 'htmlEmbed', attrs: { code: '', file: '', title: '', height: DEFAULT_EMBED_HEIGHT } }
+export { EMPTY_HTML_EMBED } from './commands'

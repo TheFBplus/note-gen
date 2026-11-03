@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, forwardRef, useImperativeHandle, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import { type Range } from '@tiptap/core'
 import { type Editor } from '@tiptap/react'
+import { useHtmlEmbedSlashItems } from '@/extensions/html-embed/menus'
 import { useTranslations } from 'next-intl'
 import { ChevronRight } from 'lucide-react'
 import { SlashCommandItem, suggestionItems, filterItems } from './suggestion'
@@ -44,6 +45,7 @@ function ShortcutHint({ keys }: { keys: string[] }) {
 
 export const SlashMenu = forwardRef<SlashMenuRef, SlashMenuProps>(({ editor, range, query, onSelectItem }, ref) => {
   const t = useTranslations('editor.slashCommand')
+  const extensionItems = useHtmlEmbedSlashItems()
   const hasQuery = query.trim().length > 0
   const [selectedGroupIndex, setSelectedGroupIndex] = useState(0)
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -109,8 +111,6 @@ export const SlashMenu = forwardRef<SlashMenuRef, SlashMenuProps>(({ editor, ran
       blockquoteDesc: t('items.blockquoteDesc'),
       codeBlock: t('items.codeBlock'),
       codeBlockDesc: t('items.codeBlockDesc'),
-      htmlEmbed: t('items.htmlEmbed'),
-      htmlEmbedDesc: t('items.htmlEmbedDesc'),
       divider: t('items.divider'),
       dividerDesc: t('items.dividerDesc'),
       inlineMath: t('items.inlineMath'),
@@ -177,8 +177,8 @@ export const SlashMenu = forwardRef<SlashMenuRef, SlashMenuProps>(({ editor, ran
         })
       },
     }))
-    return filterItems([...suggestionItems(translations), ...pluginItems], query)
-  }, [pluginCommands, query, translations])
+    return filterItems([...extensionItems, ...suggestionItems(translations), ...pluginItems], query)
+  }, [extensionItems, pluginCommands, query, translations])
 
   const groupedItems = useMemo(() => {
     const groups: Record<string, SlashCommandItem[]> = {}

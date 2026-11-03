@@ -24,7 +24,6 @@ import useSyncStore from "@/stores/sync"
 import useSettingStore from "@/stores/setting"
 import useUpdateStore from "@/stores/update"
 import { cn } from "@/lib/utils"
-import { IS_CUSTOM_BUILD } from "@/lib/custom-build"
 import emitter from "@/lib/emitter"
 import {
   getAutoDataSyncState,
@@ -54,8 +53,7 @@ export function MobileMeSheet({ active = true }: { active?: boolean }) {
   const autoConversationSyncEnabled = useSettingStore(state => state.autoConversationSyncEnabled)
   const mobileUpdate = useUpdateStore(state => state.mobileUpdate)
   const [currentPlatform] = useState(() => getMobilePlatform())
-  const hasCustomUpdate = useUpdateStore(state => state.hasUpdate)
-  const hasMobileUpdate = Boolean((mobileUpdate || IS_CUSTOM_BUILD && hasCustomUpdate) && currentPlatform)
+  const hasMobileUpdate = Boolean(mobileUpdate && currentPlatform)
   const swipeSurfaceRef = useRef<HTMLDivElement>(null)
   const surfaceX = useMotionValue(0)
   const avatarUrl = useSyncStore(state =>

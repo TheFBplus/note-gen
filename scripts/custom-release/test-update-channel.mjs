@@ -46,9 +46,11 @@ try {
   assert.ok(context.events.includes('native-check:darwin-aarch64'))
   await custom.getState().ignore('0.39.1-custom.3')
   assert.equal(custom.getState().hasUpdate, false)
+  assert.equal(main.getState().hasUpdate, false)
   await custom.getState().check()
   assert.equal(custom.getState().hasUpdate, false)
   await custom.getState().ignore('')
+  assert.equal(main.getState().hasUpdate, true)
   context.events = []
   await custom.getState().install()
   assert.deepEqual(context.events, ['download', 'flush-active', 'flush-all', 'install', 'relaunch'])
@@ -58,8 +60,14 @@ try {
   assert.ok(!context.events.includes('relaunch'))
   assert.match(custom.getState().error, /Signature/)
   context.failInstall = false; context.os = 'android'; context.events = []
-  await main.getState().checkForMobileUpdates(context.current)
+  const mobileInfo = await main.getState().checkForMobileUpdates(context.current)
+  assert.equal(mobileInfo.version, '0.39.1-custom.3')
+  assert.deepEqual(main.getState().mobileUpdate, mobileInfo)
   assert.equal(custom.getState().hasUpdate, true)
+  await custom.getState().ignore('0.39.1-custom.3')
+  assert.equal(main.getState().mobileUpdate, null)
+  await custom.getState().ignore('')
+  assert.equal(main.getState().mobileUpdate.version, '0.39.1-custom.3')
   assert.ok(!context.events.some(e => e.startsWith('native-check')))
   context.os = 'windows'; context.arch = 'x86_64'; context.events = []
   await custom.getState().check()

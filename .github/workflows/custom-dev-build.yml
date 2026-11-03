@@ -120,7 +120,7 @@ jobs:
           node --experimental-strip-types scripts/round-trip-fixture.mjs
           pnpm plugin-api:check-version
           pnpm exec tsc --noEmit --incremental false
-          pnpm exec eslint src/extensions/html-embed scripts/html-embed-*.ts scripts/html-embed-view-cases.tsx
+          pnpm exec eslint src/extensions/html-embed src/extensions/locales src/extensions/custom-updates scripts/html-embed-*.ts scripts/html-embed-*.tsx
 
   desktop:
     needs: [prepare, validate]

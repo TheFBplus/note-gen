@@ -13,6 +13,7 @@ import { CUSTOM_UPDATE_URL, newerCustomVersion, parseCustomManifest, type Custom
 
 interface State {
   current: string
+  mobile: boolean
   manifest: CustomManifest | null
   update: Update | null
   status: 'idle' | 'checking' | 'ready' | 'downloading' | 'installing' | 'error'
@@ -27,7 +28,7 @@ interface State {
 let pending: Promise<void> | null = null
 
 export const useCustomUpdates = create<State>((set, get) => ({
-  current: '', manifest: null, update: null, status: 'idle', error: '', ignored: '', progress: null, hasUpdate: false,
+  current: '', mobile: false, manifest: null, update: null, status: 'idle', error: '', ignored: '', progress: null, hasUpdate: false,
   check: () => {
     if (pending) return pending
     if (['downloading', 'installing'].includes(get().status)) return Promise.resolve()
@@ -58,7 +59,7 @@ export const useCustomUpdates = create<State>((set, get) => ({
           if (!candidate || candidate.version !== manifest.version) throw new Error('Update channel changed; please check again')
         }
         await get().update?.close()
-        set({ current, ignored, manifest: newer ? manifest : null, update: candidate,
+        set({ current, ignored, mobile: os === 'android', manifest: newer ? manifest : null, update: candidate,
           hasUpdate: newer && manifest.version !== ignored && (os === 'android' || Boolean(candidate)), status: 'ready' })
       } catch (error) {
         await candidate?.close().catch(() => {})

@@ -20,6 +20,9 @@ try {
     await build({ entryPoints: ['scripts/html-embed-dom-cases.ts'], outfile: domOutfile, bundle: true, packages: 'external', platform: 'node', format: 'esm' })
     const dom = await import(pathToFileURL(domOutfile).href)
     try {
+      const hostOutfile = path.join(directory, 'host-fixture.mjs')
+      await build({ entryPoints: ['scripts/html-embed-host-cases.tsx'], outfile: hostOutfile, bundle: true, packages: 'external', platform: 'node', format: 'esm', jsx: 'automatic' })
+      await import(pathToFileURL(hostOutfile).href)
       const workerOutfile = path.join(directory, 'worker-fixture.mjs')
       await build({ entryPoints: ['src/app/core/main/editor/markdown/markdown-lexer-worker.ts'], outfile: workerOutfile, bundle: true, packages: 'external', platform: 'node', format: 'esm' })
       process.env.HTML_EMBED_WORKER_FIXTURE = pathToFileURL(workerOutfile).href

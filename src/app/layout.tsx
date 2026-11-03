@@ -12,6 +12,7 @@ import { DeveloperModeController } from "@/components/developer-mode-controller"
 import { AppLockGate } from "@/components/app-lock-gate";
 import { CustomCssController } from "@/components/custom-css-controller";
 
+import { ExtensionMessagesProvider } from "@/extensions/locales/provider";
 import { CustomUpdateGuard } from "@/extensions/custom-updates/update-panel";
 
 function AppRuntime({ children }: { children: React.ReactNode }) {
@@ -58,9 +59,11 @@ export default function RootLayout({
           <Suspense>
             <TooltipProvider>
               <NextIntlProvider>
-                <AppLockGate>
-                  <AppRuntime>{children}<CustomUpdateGuard /></AppRuntime>
-                </AppLockGate>
+                <ExtensionMessagesProvider>
+                  <AppLockGate>
+                    <AppRuntime>{children}<CustomUpdateGuard /></AppRuntime>
+                  </AppLockGate>
+                </ExtensionMessagesProvider>
               </NextIntlProvider>
             </TooltipProvider>
           </Suspense>

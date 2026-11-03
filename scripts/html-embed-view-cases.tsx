@@ -6,7 +6,9 @@ import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { HtmlEmbed } from '../src/extensions/html-embed/extension'
 import { EmbedFileError } from '../src/extensions/html-embed/file-path'
-import messages from '../messages/en.json'
+import upstreamMessages from '../messages/en.json'
+import { withExtensionMessages } from '../src/extensions/locales/messages'
+const messages = withExtensionMessages(upstreamMessages, 'en')
 
 // 由 DOM fixture 先建立 jsdom；这里验证真实 React NodeView，而非模拟其 effect。
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })

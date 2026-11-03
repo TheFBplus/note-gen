@@ -69,9 +69,9 @@ Markdown 保留专用围栏。HTML/PDF 导出继续走上游 Streamdown 流程�
 
 1. `tiptap-editor.tsx`：注册 `HtmlEmbed`，处理手机插入动作，提供当前笔记路径和文档/工作区切换通知（复用现有来源上下文订阅）。
 2. `markdown-tokenizers.ts`：注册同一个 tokenizer，兼顾主线程与后台 lexer；`markdown-lexer-protocol.ts` 版本号用于拒绝旧缓存。
-3. `slash-command/suggestion.tsx` 和 `slash-menu.tsx`：插入入口及文案。
-4. `mobile-writing-toolbar.tsx`：触屏入口。
-5. `messages/en.json` / `messages/zh.json`：新增 `editor.htmlEmbed` 与斜杠菜单文案；其他界面语言跟随上游语言插件，缺失的扩展文案走既有回退机制。
+3. `slash-command/slash-menu.tsx`：拼接独立 `menus.tsx` 返回的菜单项；不改 `suggestion.tsx`。
+4. `mobile-writing-toolbar.tsx`：拼接独立菜单项。两端插入均调用扩展内 `commands.ts`，宿主保留选区和事务调度。
+5. 根布局挂载 `src/extensions/locales/provider.tsx`：扩展文案独立保存在同目录的 en/zh.json，不改上游 messages 字典。跟随宿主语言刷新，保留语言插件已有值，其他语言缺失扩展文案时回退英文。
 6. `streamdown-renderer.tsx`：注册 `remarkHtmlEmbedFiles`，只读视图和导出显示文件引用文本。
 
 升级上游时优先检查这些接入点。`dev` 用于跟踪上游，本功能在 `codex/html-embed`；将更新后的 `dev` 合并到功能分支，保留独立模块，不覆盖整个目录或重置功能分支。
@@ -108,3 +108,7 @@ v2 已通过类型检查、相关 ESLint、Markdown/后台 lexer 往返、路径
 ### 2026-11-03 上游 Wiki / 列表兼容
 
 合并上游 `5dd1eae8` 后，WikiMetadata、上游 MarkdownOrderedList 与 HTML Embed 共存；声明顺序必须和 `markdown-tokenizers.ts` 一致。lexer 协议已升到 5，不能退回 3/4。普通 fixture 已使用组合解析配置；提供外部 jsdom 时还会执行真实 worker、Wiki/列表嵌入往返、AI 局部修改、文档切换、语言回退和实际导出/来源链接刷新检查。原 Node View 运行状态保留与异步文件取消回归仍保留。所有检查已本地通过，但不代表 Wiki 全部业务功能或移动真机已验收。
+
+### 2026-11-03 扩展独立化
+
+插入命令、两端菜单定义及扩展翻译已独立；上游 suggestion、手机个人面板和语言字典不再保存定制修改。DOM fixture 新增真实 Provider 语言切换、插件覆盖、共享插入命令与手机块级菜单点击回归。Schema、worker、文件读取和导出接入仍须随上游升级检查，独立模块不能保证零冲突。

@@ -93,7 +93,7 @@ v2 文件引用（围栏正文为空）：
 | `src/app/core/main/editor/markdown/slash-command/` | 插入菜单及翻译接入 |
 | `src/app/core/main/editor/markdown/mobile-writing-toolbar.tsx` | 手机触屏插入入口 |
 | `src/components/markdown/streamdown-renderer.tsx` | 注册惰性的文件引用 remark 插件 |
-| `messages/*.json` | `editor.htmlEmbed` 和斜杠菜单文案 |
+| `src/extensions/locales/` | 独立 HTML Embed/定制更新文案及根布局 Provider |
 
 后续修改优先留在独立模块。没有为本功能修改 Rust、能力配置、全局导出清理、同步模块、依赖版本或锁文件。
 
@@ -115,7 +115,7 @@ COREPACK_ENABLE_AUTO_PIN=0 pnpm install --frozen-lockfile
 node scripts/html-embed-fixture.mjs
 node --experimental-strip-types scripts/round-trip-fixture.mjs
 COREPACK_ENABLE_AUTO_PIN=0 pnpm exec tsc --noEmit --incremental false
-COREPACK_ENABLE_AUTO_PIN=0 pnpm exec eslint src/extensions/html-embed scripts/html-embed-*.ts scripts/html-embed-view-cases.tsx
+COREPACK_ENABLE_AUTO_PIN=0 pnpm exec eslint src/extensions/html-embed scripts/html-embed-*.ts scripts/html-embed-*.tsx
 COREPACK_ENABLE_AUTO_PIN=0 pnpm build
 COREPACK_ENABLE_AUTO_PIN=0 RUSTUP_TOOLCHAIN=stable pnpm tauri dev
 COREPACK_ENABLE_AUTO_PIN=0 RUSTUP_TOOLCHAIN=stable pnpm tauri build --debug --bundles app --no-sign
@@ -187,3 +187,7 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 - 本轮本地验证已通过 actionlint、17 项云端控制面回归、定制/普通更新渠道回归、类型检查、相关 ESLint 和定制标志下的前端生产构建。三平台云端首轮已启动，最终产物及签名结果须查看 Actions。用户已明确授权并已完成本轮配置的提交推送、默认分支切换和 Issues 启用；命令行无 GitHub 凭据，推送通过已登录的 GitHub Desktop 完成，远端提交及仓库状态已核对。
 
 - 首次运行：https://github.com/TheFBplus/note-gen/actions/runs/41078996240 。2026-10-30 启动后已确认 prepare 和 credentials 成功，validate 进行中；这不等于三平台打包或 APK 签名验证已通过。密钥文件与公钥证书信息保存在本机 `~/.config/notegen-signing/`（目录 700、文件 600），密码未写入仓库或明文文件。请通过钥匙串访问读取并备份密码，不要在聊天或日志中输出。
+
+## 2026-11-03 扩展独立化
+
+HTML Embed 插入逻辑集中到 `commands.ts`，桌面/手机菜单集中到 `menus.tsx`，宿主只拼接和调度。扩展翻译移到 `src/extensions/locales/{en,zh}.json`，根布局内的 Provider 跟随上游语言刷新、保留语言插件覆盖并补齐缺失文案；不再修改上游 messages 字典及 suggestion.tsx。定制更新 `host.ts` 统一同步兼容字段，手机个人面板恢复上游实现；面板组件不再反向写入宿主状态。普通构建不连接此适配器。必须保留官方更新隔离、编辑器注册/上下文、worker 和导出接入；此重构减少冲突，不能保证未来无需人工合并。

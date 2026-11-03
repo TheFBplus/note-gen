@@ -7,6 +7,7 @@ import { createMarkdownLexer, MARKDOWN_TOKENIZER_NAMES } from '../src/app/core/m
 import { MARKDOWN_LEXER_VERSION, type MarkdownLexerResponse } from '../src/app/core/main/editor/markdown/markdown-lexer-protocol'
 import { parsePreparedMarkdown } from '../src/app/core/main/editor/markdown/schema-markdown'
 import { renderHtmlEmbedMarkdown } from '../src/extensions/html-embed/markdown'
+import { withExtensionMessages } from '../src/extensions/locales/messages'
 import { loadMessagesWithFallback, registerPluginLanguages, unregisterPluginLanguages } from '../src/i18n/config'
 
 const find = (node: JSONContent, type: string): JSONContent[] => [
@@ -92,8 +93,10 @@ reopened.destroy()
 // 非中英文语言插件缺少自定义 key 时，使用上游既有英文回退。
 registerPluginLanguages('fixture-language', [{ locale: 'ja', name: '日本語', messages: { customBuild: { title: 'テスト' } } }])
 try {
-  const japanese = await loadMessagesWithFallback('ja')
-  const english = await loadMessagesWithFallback('en')
+  const japanese = withExtensionMessages(await loadMessagesWithFallback('ja'), 'ja')
+  const english = withExtensionMessages(await loadMessagesWithFallback('en'), 'en')
+  assert.equal(typeof (english.customBuild as Record<string, string>).check, 'string')
+  assert.ok((english.editor as Record<string, unknown>).htmlEmbed)
   assert.equal((japanese.customBuild as Record<string, string>).title, 'テスト')
   assert.equal((japanese.customBuild as Record<string, string>).check, (english.customBuild as Record<string, string>).check)
   assert.deepEqual((japanese.editor as Record<string, unknown>).htmlEmbed, (english.editor as Record<string, unknown>).htmlEmbed)
