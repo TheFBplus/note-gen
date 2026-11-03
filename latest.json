@@ -1,21 +1,21 @@
 {
-  "version": "0.39.1-custom.4",
-  "pub_date": "2026-10-31T10:08:09Z",
-  "notes": "NoteGen Custom 0.39.1-custom.4\nUpstream: 20c50087badbe7061f55f9d0ed3f5017ebe33f08\nCustom: 917fe9977a432337347f08065e763dad8165af60",
+  "version": "0.39.2-custom.7",
+  "pub_date": "2026-11-03T07:21:35Z",
+  "notes": "NoteGen Custom 0.39.2-custom.7\nUpstream: 8601685c3b4622209503d840d92ac98f2726748d\nCustom: 9dbf136e2ccaa9eef2f838c6fa6374a283ccfeed",
   "platforms": {
     "windows-x86_64-nsis": {
-      "url": "https://github.com/TheFBplus/note-gen/releases/download/custom-dev-u20c50087badb-s917fe9977a43/NoteGen_0.39.1-custom.4_windows-x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRU1qMmlJOVZDTGFERGVCb0pmSUkrRnpSNlI2VzVxTVhZNjROU3ZVcGRvcWJITyt1NEdpVkk4cnpkYkFBSFQvUHNVQnVYVnlUaXlDSzliTFdiVXl2N3g3ZVRWMUZSMmdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNDQxMjY3CWZpbGU6Tm90ZUdlbl8wLjM5LjEtY3VzdG9tLjRfd2luZG93cy14NjQtc2V0dXAuZXhlCmczTk5vRUh5alY4bmI4SVNZUGZzRGdTazd1b1lXMVJudmgxWW4rTXNKb25wdnkwWmF6cHFaSENlL3NPZ2k4R0RGY2I2VzMwNUdCcDl3cmwwSTRJTEFBPT0K"
+      "url": "https://github.com/TheFBplus/note-gen/releases/download/custom-dev-u8601685c3b46-s9dbf136e2cca/NoteGen_0.39.2-custom.7_windows-x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRU1qMmlJOVZDTGR4ZFlua2VvZXM3VFY0eVhSYXJ4NVFJV0hpRUtETmhvaUxUYVY4U3NKb2RPQ1Nod1BISHJuK2ZhUVhQMU9VS1E5NEtLOEZaQnZPalhWTXVrbnpsS3dzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNjkwNDY1CWZpbGU6Tm90ZUdlbl8wLjM5LjItY3VzdG9tLjdfd2luZG93cy14NjQtc2V0dXAuZXhlCmF4WHN0SFRGVEdLaTdGekthQWh0VGlHREtmVmNzV2JuaWF5dGMxN3dWeW1CRG9CckFjdHdxdytKeHA2aDBxVEhYbkcrZ1J6aFp6RDJqaC9YaDRHYUFBPT0K"
     },
     "darwin-aarch64": {
-      "url": "https://github.com/TheFBplus/note-gen/releases/download/custom-dev-u20c50087badb-s917fe9977a43/NoteGen_0.39.1-custom.4_macos-arm64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRU1qMmlJOVZDTGVRNG82dWhMaW5uUUxReGRZODcyQ2ZFS2owNGpVL0RDTVJwemJRNGpTclVhUkswMUJ1N0Q5RE9zMjhZUmFsbjBQeHI1ZHZJQnlGdWJrMU5raVNXaHdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNDQxMjY3CWZpbGU6Tm90ZUdlbl8wLjM5LjEtY3VzdG9tLjRfbWFjb3MtYXJtNjQuYXBwLnRhci5negpHbHJFbnM1TGFzNXlYY2pXbTVSem1INHdDa1JxS3llc0R2c3c0RzhTNGY5TU9Yd05DRW9jdXAyZmF2VlpwTVlJNWo2T3RGYWpXcVJwQmI0cmQ4bjZEdz09Cg=="
+      "url": "https://github.com/TheFBplus/note-gen/releases/download/custom-dev-u8601685c3b46-s9dbf136e2cca/NoteGen_0.39.2-custom.7_macos-arm64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRU1qMmlJOVZDTGJnK2h4YnY5MWxHOXdSbkxEUExzRUt5THAwbHV5THd3a01MejI2WUUyYk14NUZiRGVYTHRjWEZEa2NUbmRndkR5OXdzRlFWeHBFSzZIdmR5Q3ZCNkFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNjkwNDY1CWZpbGU6Tm90ZUdlbl8wLjM5LjItY3VzdG9tLjdfbWFjb3MtYXJtNjQuYXBwLnRhci5negpwVmJlVFdCbjBJZ2NSZ0ZDSVJaUGVMakNMRFB4Q1pMdWVkRlpsM0Vjdy9peXF3QkJnUnk2QXNYTU8xWnRRdEI5eWtRRFV0eGFkd1Q3bXhhTkRlUy9EZz09Cg=="
     }
   },
   "android": {
-    "url": "https://github.com/TheFBplus/note-gen/releases/download/custom-dev-u20c50087badb-s917fe9977a43/NoteGen_0.39.1-custom.4_android-arm64.apk",
-    "version_code": 1000000004,
-    "sha256": "bbef97066d730f6e3c2f646dda0fa885adb32044a9ec368017ba37335d485556"
+    "url": "https://github.com/TheFBplus/note-gen/releases/download/custom-dev-u8601685c3b46-s9dbf136e2cca/NoteGen_0.39.2-custom.7_android-arm64.apk",
+    "version_code": 1000000007,
+    "sha256": "96df27a067a7ac301c831749f71f7c59c091dc444429ce33aad05526f445de51"
   },
-  "release_url": "https://github.com/TheFBplus/note-gen/releases/tag/custom-dev-u20c50087badb-s917fe9977a43"
+  "release_url": "https://github.com/TheFBplus/note-gen/releases/tag/custom-dev-u8601685c3b46-s9dbf136e2cca"
 }
