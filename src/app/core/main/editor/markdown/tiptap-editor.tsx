@@ -66,6 +66,7 @@ import { ImageBubbleMenu } from './image-bubble-menu'
 import { toast } from '@/hooks/use-toast'
 import { TableContextToolbar } from './table-context-toolbar'
 import { TableScrollbar } from './table-scrollbar'
+import { AgentDiffNavigation } from './agent-diff-navigation'
 import { PluginEditorInlineViews } from '@/components/plugins/plugin-embedded-views'
 import { FooterBar } from './footer-bar/index'
 import { Outline } from './outline'
@@ -8088,6 +8089,9 @@ export function TipTapEditor({
         )}
         </div>
         </div>
+        {isActive && scrollable && effectiveViewMode === 'visual' ? (
+          <AgentDiffNavigation editor={editor} scrollContainerRef={scrollContainerRef} />
+        ) : null}
         {scrollable && !isMobile && effectiveViewMode === 'visual' ? (
           <EditorScrollbar
             refreshKey={viewMode}

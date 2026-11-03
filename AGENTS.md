@@ -191,3 +191,5 @@ HTML_EMBED_DOM_MODULE="$embed_test_dir/node_modules/jsdom/lib/api.js" node scrip
 ## 2026-11-03 扩展独立化
 
 HTML Embed 插入逻辑集中到 `commands.ts`，桌面/手机菜单集中到 `menus.tsx`，宿主只拼接和调度。扩展翻译移到 `src/extensions/locales/{en,zh}.json`，根布局内的 Provider 跟随上游语言刷新、保留语言插件覆盖并补齐缺失文案；不再修改上游 messages 字典及 suggestion.tsx。定制更新 `host.ts` 统一同步兼容字段，手机个人面板恢复上游实现；面板组件不再反向写入宿主状态。普通构建不连接此适配器。必须保留官方更新隔离、编辑器注册/上下文、worker 和导出接入；此重构减少冲突，不能保证未来无需人工合并。
+
+本轮验证：正常合并最新 `upstream/dev`（8601685c）无冲突，包含上游 Agent 差异导航；上游 en/zh 字典、suggestion.tsx 和 mobile-me-sheet.tsx 与该基线完全一致。类型检查、相关 ESLint、普通/DOM/React/worker/导出及新增宿主集成回归、原代码块往返、37 项云端控制面/签名渠道/提醒回归、更新 store 原生边界模拟、actionlint、定制模式前端生产构建均通过。本轮未启动云端打包，未执行移动真机或跨版本安装验收。
