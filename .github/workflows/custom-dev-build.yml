@@ -167,7 +167,7 @@ jobs:
   android:
     needs: [prepare, validate]
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -222,7 +222,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-    timeout-minutes: 45
+    timeout-minutes: 330
     steps:
       - name: Require protected environment secrets after approval
         env:
@@ -319,10 +319,11 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/server-publisher"
           "$RUNNER_TEMP/server-publisher/bin/pip" install --disable-pip-version-check paramiko==4.0.0
       - name: Upload verified packages and atomically advance server channel
+        timeout-minutes: 315
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_DEPLOY_SSH_KEY: ${{ secrets.RELEASE_DEPLOY_SSH_KEY }}
-        run: '"$RUNNER_TEMP/server-publisher/bin/python" automation/scripts/custom-release/server_deploy.py --metadata metadata/build-info.json --destination packages'
+        run: '"$RUNNER_TEMP/server-publisher/bin/python" -u automation/scripts/custom-release/server_deploy.py --metadata metadata/build-info.json --destination packages'
       - name: Advance channel only after complete Release publication
         env:
           GH_TOKEN: ${{ github.token }}
@@ -332,7 +333,7 @@ jobs:
     if: github.repository == 'TheFBplus/note-gen' && github.ref == 'refs/heads/codex/html-embed' && inputs.server_only_release != ''
     environment: custom-release
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 330
     permissions:
       contents: write
     steps:
@@ -361,10 +362,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 automation/scripts/custom-release/pipeline.py check-environment
       - name: Publish existing signed packages to server
+        timeout-minutes: 315
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_DEPLOY_SSH_KEY: ${{ secrets.RELEASE_DEPLOY_SSH_KEY }}
-        run: '"$RUNNER_TEMP/server-publisher/bin/python" automation/scripts/custom-release/server_deploy.py --metadata metadata/build-info.json --destination packages'
+        run: '"$RUNNER_TEMP/server-publisher/bin/python" -u automation/scripts/custom-release/server_deploy.py --metadata metadata/build-info.json --destination packages'
       - name: Advance GitHub backup channel
         env:
           GH_TOKEN: ${{ github.token }}

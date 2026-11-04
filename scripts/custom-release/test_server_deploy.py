@@ -65,10 +65,69 @@ class ServerTests(unittest.TestCase):
         self.assertFalse((self.root / 'pub/.notegen-release-lock').exists())
         self.assertFalse(any(e == ('remove', '/pub/latest.json') for e in self.sftp.events))
     def test_upload_failure_preserves_old_channel(self):
-        with patch.object(self.sftp, 'put', side_effect=OSError('upload failed')):
+        with patch.object(d, 'upload_file', side_effect=OSError('upload failed')):
             with self.assertRaises(OSError): self.deploy()
         self.assertEqual(self.latest.read_bytes(), self.before)
-        self.assertEqual(list((self.root / 'pub/releases').iterdir()), [])
+        self.assertTrue((self.root / 'pub/releases/.stage-0.39.2-custom.42').is_dir())
+        self.assertFalse((self.root / 'pub/.notegen-release-lock').exists())
+    def test_partial_prefix_is_verified_and_only_tail_is_written(self):
+        remote = '/pub/releases/partial'
+        self.sftp.path(remote).write_bytes(b'fix')
+        real_open = self.sftp.open
+        writes = []
+        class Recorder:
+            def __init__(self, stream): self.stream = stream
+            def __enter__(self): self.stream.__enter__(); return self
+            def __exit__(self, *args): return self.stream.__exit__(*args)
+            def seek(self, offset): return self.stream.seek(offset)
+            def write(self, data): writes.append(data); return self.stream.write(data)
+        def tracked(path, mode):
+            stream = real_open(path, mode)
+            return Recorder(stream) if '+' in mode else stream
+        with patch.object(self.sftp, 'open', side_effect=tracked):
+            d.upload_file(self.sftp, self.local, remote)
+        self.assertEqual(b''.join(writes), b'ture')
+        self.assertEqual(self.sftp.path(remote).read_bytes(), b'fixture')
+
+    def test_retry_reuses_partial_staging_and_still_verifies_before_commit(self):
+        stage = '/pub/releases/.stage-0.39.2-custom.42'
+        def interrupted(sftp, local, remote):
+            sftp.path(remote).write_bytes(b'fix')
+            raise OSError('connection lost')
+        with patch.object(d, 'upload_file', side_effect=interrupted):
+            with self.assertRaises(OSError): self.deploy()
+        self.assertEqual(self.latest.read_bytes(), self.before)
+        self.assertEqual(self.sftp.path(stage + '/package.exe').read_bytes(), b'fix')
+        self.deploy()
+        self.assertEqual(json.loads(self.latest.read_bytes()), self.manifest)
+        self.assertFalse(self.sftp.path(stage).exists())
+
+    def test_corrupt_or_oversized_staging_is_replaced(self):
+        remote = '/pub/releases/partial'
+        for content in [b'bad', b'corrupt', b'oversized content']:
+            self.sftp.path(remote).write_bytes(content)
+            d.upload_file(self.sftp, self.local, remote)
+            self.assertEqual(self.sftp.path(remote).read_bytes(), b'fixture')
+
+    def test_complete_staging_is_verified_without_rewriting(self):
+        remote = '/pub/releases/partial'
+        self.sftp.path(remote).write_bytes(b'fixture')
+        with patch.object(self.sftp, 'open', wraps=self.sftp.open) as opened:
+            d.upload_file(self.sftp, self.local, remote)
+        self.assertEqual([call.args[1] for call in opened.call_args_list], ['rb'])
+
+    def test_deadline_preserves_channel_and_releases_lock(self):
+        with patch.object(d, '_deadline', 0):
+            with self.assertRaises(PipelineError): self.deploy()
+        self.assertEqual(self.latest.read_bytes(), self.before)
+        self.assertFalse((self.root / 'pub/.notegen-release-lock').exists())
+
+    def test_staging_symlink_is_rejected(self):
+        stage = self.root / 'pub/releases/.stage-0.39.2-custom.42'
+        stage.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaises(PipelineError): self.deploy()
+        self.assertEqual(self.latest.read_bytes(), self.before)
+
     def test_https_failure_preserves_old_channel_and_retry_reuses_files(self):
         with self.assertRaises(PipelineError): self.deploy(lambda _: 'bad')
         self.assertEqual(self.latest.read_bytes(), self.before)
@@ -150,6 +209,9 @@ class RecoveryTests(unittest.TestCase):
         self.assertLess(signing.index('pipeline.py publish'),signing.index('server_deploy.py'))
         self.assertLess(signing.index('server_deploy.py'),signing.index('pipeline.py promote-channel'))
         self.assertNotIn('  publish:',workflow)
+        self.assertIn('timeout-minutes: 330', signing)
+        self.assertIn('timeout-minutes: 315', recovery)
+        self.assertIn('python\" -u automation/scripts/custom-release/server_deploy.py', recovery)
 
 
 if __name__ == '__main__': unittest.main()

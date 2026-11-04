@@ -221,3 +221,5 @@ GitHub 环境规则必须实际配置；`check-environment` 会提前核验 TheF
 运行 41659867898 第三次尝试中，prepare/validate/三平台原生包/两种签名成功，发布步骤报 Publication requires all three installers and signed desktop update files，SFTP 上传未执行。合并签名发布任务后复用 packages 目录，apksigner 默认生成的 .apk.idsig 可混入严格六文件集合。本轮将签名输出改为 android-signed，新增可信控制面 assemble 子命令，从三个中间目录按版本精确复制六个非空常规文件到空发布目录；不删除/放宽签名机制，不忽略发布校验。错误输出新增实际文件名供定位。
 
 回归覆盖旧路径六包加 .idsig 的七文件拒绝、新组装忽略辅助文件且逐字节保留产物、缺失签名和非空目的目录拒绝；28 项控制面 + 7 项桌面渠道 + 13 项服务器发布/恢复 + 7 项提醒与 actionlint 通过。本轮未运行无关前端构建，未启动云端构建、未发布安装包或修改服务器清单。旧运行及其重试固定旧工作流，修复后需新建手动运行，server_only_release 留空；本次未成功创建 Release，不能用已有 Release 恢复模式代替构建。
+
+2026-11-04 服务器发布超时修复：run 41758458084 的三平台编译、签名和 Release 0.39.2-custom.11 均成功，上传约 44 分钟触发旧任务 45 分钟上限。发布任务现上限 330 分钟，上传步骤 315 分钟、脚本期限 300 分钟，增加保活与无缓冲进度；隐藏暂存目录按版本保留，续传前逐字节核对前缀，最终仍完整 HTTPS 摘要校验后原子切换清单。确认无活动发布后，已清理该次遗留空锁并保留约 37 MB 暂存数据；未切换清单或启动新构建。恢复应手动填写 server_only_release=custom-dev-ub9620287bd84-s4bd39a1ce7e9，不重新签名或覆盖已有 Release。

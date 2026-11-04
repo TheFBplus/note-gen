@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import stat
 import tempfile
+import time
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 import uuid
 
@@ -18,6 +19,24 @@ BASE_URL = 'https://files.cheapface.top/notegen-updates/'
 HOST = 'files.cheapface.top'
 USER = 'notegen-deploy'
 ROOT = '/pub'
+_deadline = None
+
+
+def check_deadline():
+    if _deadline is not None and time.monotonic() > _deadline:
+        raise PipelineError('Server publication reached its 300 minute deadline; staging is retained for resume')
+
+
+def progress(label, total):
+    started = last_report = time.monotonic()
+    def report(transferred):
+        nonlocal last_report
+        check_deadline()
+        now = time.monotonic()
+        if now - last_report >= 30 or transferred == total:
+            print(f'{label}: {transferred}/{total} bytes, elapsed {now-started:.0f}s', flush=True)
+            last_report = now
+    return report
 
 
 def connect(key_path):
@@ -28,6 +47,7 @@ def connect(key_path):
     try:
         client.connect(HOST, port=22, username=USER, key_filename=str(key_path),
                        allow_agent=False, look_for_keys=False, timeout=20, auth_timeout=20, banner_timeout=20)
+        client.get_transport().set_keepalive(30)
         sftp = client.open_sftp()
         sftp.get_channel().settimeout(120)
         return client, sftp
@@ -60,8 +80,13 @@ def https_digest(url):
         if not response.url.startswith(BASE_URL):
             raise PipelineError('Unexpected download redirect')
         value = hashlib.sha256()
+        received = 0
+        report = progress('HTTPS verify ' + url.rsplit('/', 1)[-1], int(response.headers.get('Content-Length', 0)))
+        print('HTTPS verification started: ' + url.rsplit('/', 1)[-1], flush=True)
         for chunk in iter(lambda: response.read(1024 * 1024), b''):
             value.update(chunk)
+            received += len(chunk)
+            report(received)
         return value.hexdigest()
 
 
@@ -93,6 +118,54 @@ def index_page(manifest, filenames):
             f'<ul>{links}</ul><p><a href="{html.escape(manifest["release_url"], quote=True)}">GitHub 备用下载与版本来源</a></p></html>').encode()
 
 
+def upload_file(sftp, local, remote):
+    """只在隐藏暂存目录续传；先逐字节比较已上传前缀，最终仍经完整 HTTPS SHA256 校验。"""
+    total = local.stat().st_size
+    offset = 0
+    try:
+        previous = sftp.lstat(remote)
+    except FileNotFoundError:
+        previous = None
+    if previous is not None:
+        if not stat.S_ISREG(previous.st_mode):
+            raise PipelineError('Staging file must be a regular file')
+        if previous.st_size <= total:
+            matches = True
+            remaining = previous.st_size
+            print(f'Checking resumable prefix: {local.name}, {remaining} bytes', flush=True)
+            report = progress('Prefix verify ' + local.name, remaining)
+            with sftp.open(remote, 'rb') as uploaded, local.open('rb') as source:
+                while remaining:
+                    check_deadline()
+                    chunk = uploaded.read(min(1024 * 1024, remaining))
+                    if not chunk or chunk != source.read(len(chunk)):
+                        matches = False
+                        break
+                    remaining -= len(chunk)
+                    report(previous.st_size - remaining)
+            if matches:
+                offset = previous.st_size
+    if offset == total:
+        print('Reusing complete staged file: ' + local.name, flush=True)
+        return
+    print(f'SFTP upload started: {local.name}, resuming at {offset}/{total} bytes', flush=True)
+    report = progress('SFTP ' + local.name, total - offset)
+    with local.open('rb') as source, sftp.open(remote, 'r+b' if offset else 'wb') as output:
+        pipeline = getattr(output, 'set_pipelined', None)
+        if pipeline is not None:
+            pipeline(True)
+        source.seek(offset)
+        output.seek(offset)
+        transferred = 0
+        for chunk in iter(lambda: source.read(1024 * 1024), b''):
+            check_deadline()
+            output.write(chunk)
+            transferred += len(chunk)
+            report(transferred)
+    if sftp.lstat(remote).st_size != total:
+        raise PipelineError('SFTP upload size mismatch: ' + local.name)
+
+
 def deploy_files(sftp, manifest, files, verify=https_digest):
     version = manifest['version']
     version_key(version)
@@ -102,11 +175,10 @@ def deploy_files(sftp, manifest, files, verify=https_digest):
     # 目录创建提供跨运行互斥；异常终止留下锁时由管理员核对后手动移除，不擅自抢锁。
     sftp.mkdir(lock)
     token = uuid.uuid4().hex
-    stage = ROOT + '/releases/.stage-' + token
+    stage = ROOT + '/releases/.stage-' + version
     final = ROOT + '/releases/' + version
     temporary = ROOT + '/.latest-' + token + '.json'
     page = ROOT + '/.index-' + token + '.html'
-    staged = False
     try:
         guard_version(read_remote(sftp, ROOT + '/latest.json'), manifest)
         try:
@@ -116,14 +188,18 @@ def deploy_files(sftp, manifest, files, verify=https_digest):
         if existing is not None and not stat.S_ISDIR(existing.st_mode):
             raise PipelineError('Existing release path is not a directory')
         if existing is None:
-            sftp.mkdir(stage)
-            staged = True
+            try:
+                stage_info = sftp.lstat(stage)
+            except FileNotFoundError:
+                sftp.mkdir(stage)
+            else:
+                if not stat.S_ISDIR(stage_info.st_mode):
+                    raise PipelineError('Staging path must be a directory')
             for name, local in files.items():
-                sftp.put(str(local), stage + '/' + name, confirm=True)
+                upload_file(sftp, local, stage + '/' + name)
                 sftp.chmod(stage + '/' + name, 0o644)
             # 标准 rename 不覆盖已有版本目录；不删除或改写旧版本。
             sftp.rename(stage, final)
-            staged = False
         for name, local in files.items():
             if verify(BASE_URL + 'releases/' + version + '/' + name) != digest(local):
                 raise PipelineError('HTTPS package digest mismatch: ' + name)
@@ -144,15 +220,12 @@ def deploy_files(sftp, manifest, files, verify=https_digest):
         for path in [temporary, page]:
             try: sftp.remove(path)
             except FileNotFoundError: pass
-        if staged:
-            for name in files:
-                try: sftp.remove(stage + '/' + name)
-                except FileNotFoundError: pass
-            sftp.rmdir(stage)
         sftp.rmdir(lock)
 
 
 def deploy(args):
+    global _deadline
+    _deadline = time.monotonic() + 300 * 60
     directory = Path(args.destination)
     # 复用已发布 GitHub Release 的完整性与来源检查，拒绝草稿或不匹配产物。
     manifest = server_manifest(build_manifest(args))
@@ -169,7 +242,7 @@ def deploy(args):
         finally:
             sftp.close()
             client.close()
-    print('Published server update channel:', manifest['version'])
+    print('Published server update channel:', manifest['version'], flush=True)
 
 
 if __name__ == '__main__':
