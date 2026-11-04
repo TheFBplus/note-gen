@@ -293,12 +293,34 @@ def sign_android(args):
         aligned.unlink(missing_ok=True)
 
 
+def assemble(args):
+    """从签名中间目录显式收集六个发行文件，APK 的 .idsig 等辅助文件不进入发布目录。"""
+    version = load(args.metadata)['version']
+    if not re.fullmatch(r'\d+\.\d+\.\d+-custom\.\d+', version):
+        raise PipelineError('Invalid custom package version')
+    prefix = f'NoteGen_{version}'
+    inputs = [(Path(args.desktop), suffix) for suffix in ['_windows-x64-setup.exe', '_macos-arm64.dmg', '_macos-arm64.app.tar.gz']]
+    inputs += [(Path(args.signatures), suffix) for suffix in ['_windows-x64-setup.exe.sig', '_macos-arm64.app.tar.gz.sig']]
+    inputs += [(Path(args.android), '_android-arm64.apk')]
+    sources = [directory / (prefix + suffix) for directory, suffix in inputs]
+    for source in sources:
+        if source.is_symlink() or not source.is_file() or source.stat().st_size == 0:
+            raise PipelineError('Missing or invalid release input: ' + source.name)
+    destination = Path(args.destination)
+    if destination.exists() and any(destination.iterdir()):
+        raise PipelineError('Release assembly destination must be empty')
+    destination.mkdir(parents=True, exist_ok=True)
+    for source in sources:
+        shutil.copyfile(source, destination / source.name)
+    release_files(destination)
+
+
 def release_files(directory):
     files = sorted(Path(directory).iterdir())
     expected = {'_windows-x64-setup.exe', '_macos-arm64.dmg', '_android-arm64.apk'}
     expected |= {'_macos-arm64.app.tar.gz', '_macos-arm64.app.tar.gz.sig', '_windows-x64-setup.exe.sig'}
     if len(files) != len(expected) or {next((suffix for suffix in expected if file.name.endswith(suffix)), '') for file in files} != expected:
-        raise PipelineError('Publication requires all three installers and signed desktop update files')
+        raise PipelineError('Publication requires all three installers and signed desktop update files; found ' + str(len(files)) + ' files: ' + ', '.join(file.name for file in files))
     if any(not file.is_file() or file.stat().st_size == 0 for file in files):
         raise PipelineError('Missing or empty package')
     return files
@@ -447,7 +469,7 @@ def cleanup_artifacts(args):
 def main():
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest='command', required=True)
-    for command in ['check-environment', 'prepare', 'configure', 'android-init', 'collect', 'sign-android', 'publish', 'notify', 'cleanup-artifacts', 'sign-desktop', 'promote-channel']:
+    for command in ['check-environment', 'prepare', 'configure', 'android-init', 'collect', 'sign-android', 'assemble', 'publish', 'notify', 'cleanup-artifacts', 'sign-desktop', 'promote-channel']:
         item = sub.add_parser(command)
         item.add_argument('--root', default='.')
         item.add_argument('--metadata', default='build-info.json')
@@ -461,11 +483,15 @@ def main():
             item.add_argument('--platform', choices=['windows-x64', 'macos-arm64', 'android-arm64'], required=True)
         if command == 'sign-android':
             item.add_argument('--apk', required=True)
+        if command == 'assemble':
+            item.add_argument('--desktop', default='desktop-packages')
+            item.add_argument('--signatures', default='signing')
+            item.add_argument('--android', default='android-signed')
         if command == 'notify':
             item.add_argument('--success', action='store_true')
     args = parser.parse_args()
     functions = {'check-environment': check_release_environment, 'prepare': prepare, 'configure': configure, 'android-init': prepare_android, 'collect': collect,
-                 'sign-android': sign_android, 'publish': publish, 'notify': notify, 'cleanup-artifacts': cleanup_artifacts}
+                 'sign-android': sign_android, 'assemble': assemble, 'publish': publish, 'notify': notify, 'cleanup-artifacts': cleanup_artifacts}
     try:
         if args.command in ['sign-desktop', 'promote-channel']:
             from desktop_updates import sign, promote

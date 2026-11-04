@@ -299,16 +299,16 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.RELEASE_ANDROID_KEY_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ vars.CUSTOM_ANDROID_KEY_ALIAS }}
-        run: python3 automation/scripts/custom-release/pipeline.py sign-android --metadata metadata/build-info.json --apk unsigned/android-arm64-unsigned.apk --destination packages
+        run: python3 automation/scripts/custom-release/pipeline.py sign-android --metadata metadata/build-info.json --apk unsigned/android-arm64-unsigned.apk --destination android-signed
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: custom-package-android-arm64
-          path: packages/*.apk
+          path: android-signed/*.apk
           retention-days: 7
           if-no-files-found: error
 
       - name: Assemble the complete signed release
-        run: cp desktop-packages/* signing/*.sig packages/
+        run: python3 automation/scripts/custom-release/pipeline.py assemble --metadata metadata/build-info.json --destination packages
       - name: Publish only the complete three-platform prerelease
         env:
           GH_TOKEN: ${{ github.token }}

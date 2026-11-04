@@ -266,6 +266,49 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaises(p.PipelineError):
             p.release_files(directory)
 
+    def test_android_v4_sidecar_cannot_contaminate_assembled_release(self):
+        directory = self.packages()
+        desktop, signatures, android = [self.root / name for name in ['desktop', 'signatures', 'android-signed']]
+        for path in [desktop, signatures, android]: path.mkdir()
+        for file in list(directory.iterdir()):
+            target = android if file.name.endswith('.apk') else signatures if file.name.endswith('.sig') else desktop
+            file.rename(target / file.name)
+        apk = next(android.glob('*.apk'))
+        sidecar = Path(str(apk) + '.idsig')
+        sidecar.write_bytes(b'Android v4 incremental-install signature')
+        # 原方案复用 APK 签名目录后，会把 .idsig 留进严格的发布集合，复现云端错误。
+        old_publish = self.root / 'old-publish'
+        old_publish.mkdir()
+        for source_dir in [desktop, signatures, android]:
+            for source in source_dir.iterdir():
+                (old_publish / source.name).write_bytes(source.read_bytes())
+        with self.assertRaisesRegex(p.PipelineError, r'found 7 files:.*\.idsig'):
+            p.release_files(old_publish)
+        args = self.args()
+        args.desktop, args.signatures, args.android = str(desktop), str(signatures), str(android)
+        p.assemble(args)
+        self.assertEqual(len(p.release_files(directory)), 6)
+        self.assertEqual(sidecar.read_bytes(), b'Android v4 incremental-install signature')
+        self.assertFalse(any(file.name.endswith('.idsig') for file in directory.iterdir()))
+        for file in directory.iterdir():
+            source = next(path / file.name for path in [desktop, signatures, android] if (path / file.name).exists())
+            self.assertEqual(file.read_bytes(), source.read_bytes())
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/custom-dev-build.yml').read_text()
+        self.assertIn('--destination android-signed', workflow)
+        self.assertIn('pipeline.py assemble --metadata', workflow)
+        self.assertNotIn('cp desktop-packages/* signing/*.sig packages/', workflow)
+
+    def test_assembly_refuses_missing_signature_and_nonempty_destination(self):
+        directory = self.packages()
+        args = self.args()
+        args.desktop = args.signatures = args.android = str(directory)
+        with self.assertRaisesRegex(p.PipelineError, 'must be empty'):
+            p.assemble(args)
+        signature = next(directory.glob('*.sig'))
+        signature.unlink()
+        with self.assertRaisesRegex(p.PipelineError, 'Missing or invalid release input'):
+            p.assemble(args)
+
     def publish_simulation(self, incomplete=False, published=False, draft=False, dangling=False):
         directory = self.packages()
         uploads, events = [], []

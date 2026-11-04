@@ -215,3 +215,9 @@ GitHub 环境规则必须实际配置；`check-environment` 会提前核验 TheF
 `server_deploy.py` 通过固定主机公钥的 SFTP-only 账号向 /pub 上传，不执行远端 shell。版本目录不可覆盖、HTTPS SHA256 校验、远端发布锁及 POSIX 原子切换清单；拒绝降级和同版本变更。私钥位于仓库外 ~/.config/notegen-signing/notegen-deploy-ed25519，新增环境 Secret RELEASE_DEPLOY_SSH_KEY；公钥不是签名密钥，不能替换现有 APK/Tauri 私钥。`sign-packages` 经一次审批完成签名/GitHub发布/服务器上传/备用渠道推进，编译隔离保持；server_only_release 输入用于恢复现有 Release，不执行编译/重新签名，recover_release.py 校验 GitHub 资产摘要和固定桌面公钥。流程仍只有两个工作流，构建仍手动。
 
 本轮结果：53 项 Python 控制面/签名渠道/服务器事务与恢复/提醒测试、更新 store 原生边界回归、类型检查、相关 ESLint、actionlint、定制模式前端构建通过。真实 SFTP 初次拒绝公钥，经用户让宝塔修复后通过固定主机密钥登录、chroot 检查、临时文件上传、HTTPS SHA256、POSIX 覆盖式 rename；根目录及 .ssh 写入被拒绝。临时测试文件已删除，正式 latest.json 未触碰。GitHub custom-release 已核对第六个环境 Secret RELEASE_DEPLOY_SSH_KEY 存在；GitHub 不回显值，云端实际使用仍需首轮验证。未启动构建、未上传正式安装包/切换清单；旧包仍需一次过渡安装。只测本机上传不能代替 GitHub runner 到服务器连通性或三平台实际更新验收。
+
+## 2026-11-04 发布目录混入 Android v4 辅助签名修复
+
+运行 41659867898 第三次尝试中，prepare/validate/三平台原生包/两种签名成功，发布步骤报 Publication requires all three installers and signed desktop update files，SFTP 上传未执行。合并签名发布任务后复用 packages 目录，apksigner 默认生成的 .apk.idsig 可混入严格六文件集合。本轮将签名输出改为 android-signed，新增可信控制面 assemble 子命令，从三个中间目录按版本精确复制六个非空常规文件到空发布目录；不删除/放宽签名机制，不忽略发布校验。错误输出新增实际文件名供定位。
+
+回归覆盖旧路径六包加 .idsig 的七文件拒绝、新组装忽略辅助文件且逐字节保留产物、缺失签名和非空目的目录拒绝；28 项控制面 + 7 项桌面渠道 + 13 项服务器发布/恢复 + 7 项提醒与 actionlint 通过。本轮未运行无关前端构建，未启动云端构建、未发布安装包或修改服务器清单。旧运行及其重试固定旧工作流，修复后需新建手动运行，server_only_release 留空；本次未成功创建 Release，不能用已有 Release 恢复模式代替构建。
